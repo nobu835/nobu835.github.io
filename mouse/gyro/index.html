@@ -25,7 +25,7 @@ const addr = params.get('addr');
 document.getElementById('ip_address').value = addr ? addr : '';
 
 const isIp = str => /^((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$/.test(str);
-const isUrl = str => /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(str);
+const isUrl = str => /^https?\:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z\/]{2,}$/.test(str);
 //これらはアロー関数。アロー関数は1行でも書ける
 //isIp("192.168.10.1"); でtrueかfalse
 
@@ -54,10 +54,24 @@ function handleOrientation(event) {
   //y += 90;
 
   //デッドゾーンの設定
-  if(Math.abs(x)<10 && Math.abs(y)<10){
+  if(Math.abs(x)<1 && Math.abs(y)<1){
     move=[0,0];
   }
-  else{move=[y/10,x/10]}
+  else{
+    let yy=y;
+    if(y!=0){
+      yy*=yy; //2乗する
+      yy/=90; //(90^2)*90の意味(これで0～90になる)
+      yy*=y/Math.abs(y); //符号をかける
+    }else yy=0;
+    let xx=x;
+    if(xx!=0){
+      xx*=xx;
+      xx/=90;
+      xx*=x/Math.abs(x);
+    }else xx=0;
+    move=[yy,xx];
+  }
 
   send();
 }
@@ -80,9 +94,11 @@ button.addEventListener('click', () => {
           address=`ws://${ip}:2001`;
         }else if(isUrl(address_in)){
           address=address_in;
+        }else{
+          address="NOTHING";
         }
-        console.log(`${address}に接続を試みています…`);
-        document.getElementById("logtext").textContent=`${address}に接続を試みています…`;
+        console.log(`${address} に接続を試みています…`);
+        document.getElementById("logtext").textContent=`${address} に接続を試みています…`;
         socket = new WebSocket(address);
         //document.getElementById("logtext").textContent=`成功しました`;
     }catch{
@@ -94,6 +110,12 @@ button.addEventListener('click', () => {
 
 
 window.addEventListener("deviceorientation", handleOrientation);
+//PCテスト用
+//window.addEventListener('DOMContentLoaded', function(){
+//setInterval(()=>{
+//  handleOrientation();
+//},1000)
+//})
   </script>
 </body>
 </html>
