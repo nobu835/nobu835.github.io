@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>HSV色選択デモ</title>
+  <style>
+    body {
+      transition: background-color 0.5s;
+    }
+    .container {
+      margin: 20px;
+    }
+    label {
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <label for="hue">色相（H: 0〜360）:</label>
+    <input type="range" id="hue" min="0" max="360" value="0">
+    <span id="hue-val">0</span>
+    <button id="btn">実行</button>
+  </div>
+  <script>
+    const hueInput = document.getElementById('hue');
+    const hueVal = document.getElementById('hue-val');
+    hueInput.addEventListener('input', function() {
+      hueVal.textContent = hueInput.value;
+    });
+    document.getElementById('btn').onclick = function() {
+      // HSVのS,Vは固定値（例：100%,50%）でHSLとして使う
+      const h = hueInput.value;
+      const color = `hsl(${h}, 100%, 50%)`;
+      document.body.style.backgroundColor = color;
+    };
+  </script>
+</body>
+</html>

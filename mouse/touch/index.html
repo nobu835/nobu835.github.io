@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>タップデータ送信</title>
+    <style>
+        html, body {
+            overscroll-behavior-y: none;
+            overscroll-behavior: none;
+        }
+
+    </style>
+</head>
+<body>
+  宛先<input id="ip_address"><button id="btn_connect">接続</button><button id="btn_rst">リセット</button>
+  <div id="Data"></div>
+  <div id="logtext"></div>
+  <div id="hoge"></div>
+  a
+  <script>
+    const currentDomain = window.location.hostname; //"192.168.1.8"のような"hoge.com"のような
+    document.getElementById("ip_address").value=currentDomain;
+    let touchpast=[0,0];
+    let move=[0,0];
+    let start=[0,0];
+    let socket=null
+
+    document.addEventListener('touchstart', function(event) {
+        const touch = event.touches[0];
+        const x = touch.clientX;
+        const y = touch.clientY;
+        touchpast=[x,y];
+        start=[x,y];
+        console.log('タップ位置: x=' + x + ', y=' + y);
+        document.getElementById("Data").textContent=`${x},${y}`;
+    });
+
+    document.addEventListener('touchmove', function(event) {
+        event.preventDefault(); // スクロールを防止
+        const touch = event.touches[0];
+        const x = touch.clientX;
+        const y = touch.clientY;
+        console.log('タッチ位置: x=' + x + ', y=' + y);
+        document.getElementById("Data").textContent=`${x},${y}`;
+        move[0]=x-touchpast[0];
+        move[1]=y-touchpast[1];
+        document.getElementById("logtext").textContent=`${move[0]},${move[1]}`;
+        touchpast=[x,y];
+        send();
+    }, { passive: false });
+    document.addEventListener('touchend', function(event) {
+        let click=false;
+        move=[0,0];
+        const touch = event.changedTouches[0];
+        const x = touch.clientX;
+        const y = touch.clientY;
+        if(x===start[0] && y===start[1]){
+            click=true;
+        }
+
+        document.getElementById("logtext").textContent=`${move[0]},${move[1]}`;
+        //document.getElementById("hoge").textContent=`えんど`;
+        send(click);
+    });
+    function send(mousedown=false){
+        if(socket!=null){
+            //document.getElementById("hoge").textContent=mousedown;
+            move[2]=mousedown*1; //boolに1をかけると数値になる
+            socket.send(move);
+        }
+    }
+
+    const button = document.getElementById('btn_connect');
+    button.addEventListener('click', () => {
+        //接続ボタンを押したとき
+        //alert("aaa");
+        try{
+            const ip=document.getElementById('ip_address').value;
+            console.log(`ws://${ip}:2001に接続を試みています…`);
+            document.getElementById("logtext").textContent=`ws://${ip}:2001に接続を試みています…`;
+            socket = new WebSocket(`ws://${ip}:2001`);
+            //document.getElementById("logtext").textContent=`成功しました`;
+        }catch{
+            socket=null;
+            console.log("err");
+            document.getElementById("logtext").textContent=`失敗しました`;
+        }
+    });
+  </script>
+</body>
+
+
+<!--
+
+import asyncio
+import websockets
+import pyautogui #マウス操作
+
+import threading
+import time
+
+num=[0,0,0]
+miman=[0,0]
+pyautogui.PAUSE=0.01
+
+async def handle_client(websocket, path):
+    global num
+    try:
+        print("クライアント接続OK！！")
+        while True:
+            message = await websocket.recv()
+            print(f"受信メッセージ: {message}")
+            #print(f"受信typr：{type(message)}")
+            num=[float(num) for num in message.split(',')]
+            #await websocket.send(f"エコー: {message}")
+            threading.Thread(target=move).start()
+            
+    except websockets.exceptions.ConnectionClosed:
+        print("クライアントが切断されました")
+
+def move():
+    global num
+    global miman
+    #while True:
+    current_x, current_y = pyautogui.position()
+    xx=num[0]+miman[0]
+    yy=num[1]+miman[1]
+    miman=[xx%1,yy%1]
+    curr=[xx//1,yy//1]
+    pyautogui.moveTo(current_x + curr[0], current_y + curr[1])
+    if num[2]==1:
+        pyautogui.click()
+    num=[0,0,0]
+        
+
+async def main():
+    #threading.Thread(target=move,daemon=True).start()
+    print("めいん！")
+    server = await websockets.serve(handle_client, "0.0.0.0", 2001)
+    print("2")
+    await server.wait_closed()
+    print("クローズド！！")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+-->

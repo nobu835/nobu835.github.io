@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ジャイロでマウス</title>
+    <style>
+        body {
+  overscroll-behavior-y: none; /*スワイプしてリロードを禁止*/
+}
+    </style>
+</head>
+<body>
+  宛先<input id="ip_address"><button id="btn_connect">接続</button><button id="btn_rst">リセット</button>
+  <div id="Data"></div>
+  <div id="logtext"></div>
+  <div id="hoge"></div>
+  <pre class="output"></pre>
+
+  <script>
+// クエリパラメータの値を取得
+const params = new URLSearchParams(window.location.search);
+const addr = params.get('addr');
+// 値があればinputにセットし、なければ空
+document.getElementById('addrInput').value = addr ? addr : '';
+
+const isIp = str => /^((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$/.test(str);
+const isUrl = str => /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(str);
+//これらはアロー関数。アロー関数は1行でも書ける
+//isIp("192.168.10.1"); でtrueかfalse
+
+const output = document.querySelector(".output");
+let move=[0,0,0];
+let socket=null;
+function handleOrientation(event) {
+  let x = event.beta; // [-180,180) の範囲で角度を表す、ディスプレイをこちらに向けると+、垂直で90、伏せて±90～180
+  let y = event.gamma; // [-90,90) の範囲で角度を表す、ディスプレイを右に向けると(ヨコ持ちで充電器が左)+。伏せる形になるとbetaが動く
+
+  output.textContent = `beta: ${x}\n`;
+  output.textContent += `gamma: ${y}\n`;
+
+  // 端末をひっくり返したくはないため、
+  // x の値を [-90,90] の範囲に制限する
+  if (x > 90) {
+    x = 90;
+  }
+  if (x < -90) {
+    x = -90;
+  }
+
+  //// 計算を容易にするため、x および y の値の範囲を
+  //// [0,180] に変換
+  //x += 90;
+  //y += 90;
+
+  //デッドゾーンの設定
+  if(Math.abs(x)<10 && Math.abs(y)<10){
+    move=[0,0];
+  }
+  else{move=[y/10,x/10]}
+
+  send();
+}
+function send(mousedown=false){
+    if(socket!=null){
+        //document.getElementById("hoge").textContent=mousedown;
+        move[2]=mousedown*1; //boolに1をかけると数値になる
+        socket.send(move);
+    }
+}
+
+const button = document.getElementById('btn_connect');
+button.addEventListener('click', () => {
+    //接続ボタンを押したとき
+    //alert("aaa");
+    let address;
+    try{
+        const address_in=document.getElementById('ip_address').value;
+        if(isIp(address_in)){
+          address=`ws://${ip}:2001`;
+        }else if(isUrl(address_in)){
+          address=address_in;
+        }
+        console.log(`${address}に接続を試みています…`);
+        document.getElementById("logtext").textContent=`${address}に接続を試みています…`;
+        socket = new WebSocket(address);
+        //document.getElementById("logtext").textContent=`成功しました`;
+    }catch{
+        socket=null;
+        console.log("err");
+        document.getElementById("logtext").textContent=`失敗しました`;
+    }
+});
+
+
+window.addEventListener("deviceorientation", handleOrientation);
+  </script>
+</body>
+</html>
