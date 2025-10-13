@@ -22,7 +22,7 @@
 const params = new URLSearchParams(window.location.search);
 const addr = params.get('addr');
 // 値があればinputにセットし、なければ空
-document.getElementById('addrInput').value = addr ? addr : '';
+document.getElementById('ip_address').value = addr ? addr : '';
 
 const isIp = str => /^((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$/.test(str);
 const isUrl = str => /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(str);
