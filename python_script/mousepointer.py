@@ -1,7 +1,6 @@
 import asyncio
 import websockets
 import pyautogui #マウス操作
-import pydirectinput
 import threading
 import time
 from pathlib import Path

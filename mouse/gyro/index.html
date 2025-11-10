@@ -33,6 +33,7 @@ const output = document.querySelector(".output");
 let move=[0,0,0];
 let socket=null;
 function handleOrientation(event) {
+  let yaw=event.alpha; 
   let x = event.beta; // [-180,180) の範囲で角度を表す、ディスプレイをこちらに向けると+、垂直で90、伏せて±90～180
   let y = event.gamma; // [-90,90) の範囲で角度を表す、ディスプレイを右に向けると(ヨコ持ちで充電器が左)+。伏せる形になるとbetaが動く
 

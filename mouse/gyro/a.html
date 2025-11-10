@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>スマホ姿勢＆方位センサー</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    .value { font-size: 1.5rem; margin: 0.5rem 0; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; }
+  </style>
+</head>
+<body>
+
+  <h1>姿勢（ピッチ・ロール）＆方位（コンパス）</h1>
+  <button id="btn-start">センサー開始</button>
+
+  <div class="value">ピッチ (Pitch): <span id="pitch">–</span>°</div>
+  <div class="value">ロール (Roll): <span id="roll">–</span>°</div>
+  <div class="value">方位 (Heading): <span id="heading">–</span>°</div>
+
+  <script>
+    const btnStart = document.getElementById('btn-start');
+    const elPitch  = document.getElementById('pitch');
+    const elRoll   = document.getElementById('roll');
+    const elHead   = document.getElementById('heading');
+
+    let hasDeviceMotion = false;
+    let hasDeviceOrient = false;
+
+    // iOS 13+ などでセンサー許可をリクエスト
+    async function requestPermissions() {
+      if (typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        let res = await DeviceMotionEvent.requestPermission();
+        if (res !== 'granted') throw new Error('DeviceMotion 許可拒否');
+      }
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        let res = await DeviceOrientationEvent.requestPermission();
+        if (res !== 'granted') throw new Error('DeviceOrientation 許可拒否');
+      }
+    }
+
+    // 姿勢計算：重力加速度からピッチ・ロールを算出
+    function handleMotion(event) {
+      if (!event.accelerationIncludingGravity) return;
+      const g = event.accelerationIncludingGravity;
+      // 単位 g = m/s² なので計算上特に正規化不要（tan⁻¹ が比として扱う）
+      const pitch = Math.atan2(g.x, Math.sqrt(g.y*g.y + g.z*g.z)) * 180 / Math.PI;
+      const roll  = Math.atan2(g.y, Math.sqrt(g.x*g.x + g.z*g.z)) * 180 / Math.PI;
+      elPitch.textContent = pitch.toFixed(1);
+      elRoll.textContent  = roll.toFixed(1);
+    }
+
+    // 方位取得：alpha はデバイス固定座標系の絶対方位（北を0°として時計回り）
+    function handleOrientation(event) {
+      // event.absolute が true の場合、本来の地磁気センサーによる絶対値
+      let heading = event.alpha;
+      // iOS では alpha が反時計回りの磁北偏差込みなので補正が必要な場合あり
+      if (typeof event.webkitCompassHeading === 'number') {
+        heading = event.webkitCompassHeading; // iOS 固有
+      }
+      elHead.textContent = heading.toFixed(0);
+    }
+
+    btnStart.addEventListener('click', async () => {
+      try {
+        await requestPermissions();
+      } catch (err) {
+        alert('センサー許可が必要です: ' + err.message);
+        return;
+      }
+      // イベントリスナー登録
+      if (!hasDeviceMotion) {
+        window.addEventListener('devicemotion', handleMotion);
+        hasDeviceMotion = true;
+      }
+      if (!hasDeviceOrient) {
+        window.addEventListener('deviceorientation', handleOrientation);
+        hasDeviceOrient = true;
+      }
+      btnStart.disabled = true;
+    });
+  </script>
+</body>
+</html>

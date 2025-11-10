@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Sensor Client</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 20px; }
+        .container { max-width: 400px; margin: 0 auto; }
+        .data-container { margin: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+        .status { font-weight: bold; }
+        #address-input { width: 80%; padding: 8px; margin-bottom: 10px; }
+        button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; }
+        #connect-btn { background-color: #28a745; color: white; }
+        #disconnect-btn { background-color: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Sensor Client</h1>
+
+        <div class="data-container">
+            <h2>接続設定</h2>
+            <input type="text" id="address-input" placeholder="例: 192.168.1.10:8765 or example.com">
+            <button id="connect-btn">接続</button>
+            <button id="disconnect-btn" style="display:none;">切断</button>
+            <p class="status" id="status">サーバーアドレスを入力して接続してください</p>
+        </div>
+
+        <div class="data-container">
+            <h2>位置情報</h2>
+            <p>緯度: <span id="lat">未取得</span></p>
+            <p>経度: <span id="lon">未取得</span></p>
+        </div>
+        <div class="data-container">
+            <h2>デバイスの向き</h2>
+            <p>方位角 (北=0): <span id="heading">未取得</span></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const addr = params.get('addr');
+            if (addr) {
+                document.getElementById('address-input').value = decodeURIComponent(addr);
+            }
+        });
+
+        const addressInput = document.getElementById('address-input');
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const statusEl = document.getElementById('status');
+
+        let socket = null;
+        let sendInterval = null;
+
+        // センサーデータの最新値を保持する変数
+        let latestLat = null;
+        let latestLon = null;
+        let latestHeading = null;
+
+        // 接続ボタンの処理
+        connectBtn.addEventListener('click', () => {
+            const address = addressInput.value.trim();
+            if (!address) {
+                alert('アドレスを入力してください。');
+                return;
+            }
+            const url = formatUrl(address);
+            connect(url);
+        });
+
+        // 切断ボタンの処理
+        disconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+
+        // URLをフォーマットする関数
+        function formatUrl(address) {
+            if (/^(wss?|https?):\/\//.test(address)) return address;
+            if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(address)) return `ws://${address}`;
+            return `wss://${address}`;
+        }
+
+        // WebSocketに接続する関数
+        function connect(url) {
+            if (socket && socket.readyState !== WebSocket.CLOSED) return;
+
+            console.log(`接続試行: ${url}`);
+            statusEl.textContent = `接続中: ${url}`;
+            statusEl.style.color = 'orange';
+            socket = new WebSocket(url);
+
+            socket.onopen = function(event) {
+                console.log("WebSocketサーバーに接続しました。");
+                statusEl.textContent = '接続成功';
+                statusEl.style.color = 'green';
+                addressInput.disabled = true;
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = 'inline-block';
+
+                // 接続成功後、100ミリ秒ごとにデータ送信を開始
+                if (sendInterval) clearInterval(sendInterval);
+                sendInterval = setInterval(() => {
+                    sendData(latestLat, latestLon, latestHeading);
+                }, 100); // 1秒間に10回送信
+            };
+
+            socket.onclose = function(event) {
+                console.log("WebSocketサーバーから切断されました。");
+                statusEl.textContent = '未接続';
+                statusEl.style.color = 'red';
+                addressInput.disabled = false;
+                connectBtn.style.display = 'inline-block';
+                disconnectBtn.style.display = 'none';
+                socket = null;
+
+                // 接続が切れたらデータ送信を停止
+                if (sendInterval) {
+                    clearInterval(sendInterval);
+                    sendInterval = null;
+                }
+            };
+
+            socket.onerror = function(error) {
+                console.error("WebSocketエラー: ", error);
+                statusEl.textContent = '接続エラー';
+                statusEl.style.color = 'red';
+            };
+        }
+
+        // --- センサーデータの取得と更新 ---
+
+        // デバイスの向きが更新されたら、最新の値を保存
+        function handleOrientation(event) {
+            latestHeading = event.alpha;
+            document.getElementById('heading').textContent = latestHeading ? latestHeading.toFixed(2) : '0.00';
+        }
+
+        if (window.DeviceOrientationEvent) {
+            window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        } else {
+            console.warn("deviceorientationabsoluteはサポートされていません。");
+        }
+
+        // 位置情報が更新されたら、最新の値を保存
+        function handlePosition(position) {
+            latestLat = position.coords.latitude;
+            latestLon = position.coords.longitude;
+            document.getElementById('lat').textContent = latestLat.toFixed(6);
+            document.getElementById('lon').textContent = latestLon.toFixed(6);
+        }
+
+        function handleError(error) {
+            console.error("Geolocation Error: ", error);
+            alert(`位置情報の取得に失敗しました: ${error.message}`);
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(handlePosition, handleError, {
+                enableHighAccuracy: true,
+                maximumAge: 0
+            });
+        } else {
+            alert("お使いのブラウザはGeolocationに対応していません。");
+        }
+
+        // WebSocketで最新のデータを送信する関数
+        function sendData(lat, lon, heading) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const data = { latitude: lat, longitude: lon, heading: heading };
+                socket.send(JSON.stringify(data));
+            }
+        }
+    </script>
+</body>
+</html>
