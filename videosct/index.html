@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>動画切り抜きソフト</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .drop-zone {
+            border: 3px dashed #555;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #2a2a2a;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .drop-zone.dragover {
+            border-color: #4CAF50;
+            background: #333;
+        }
+        .drop-zone.hidden {
+            display: none;
+        }
+        .preview-section {
+            display: none;
+        }
+        .preview-section.active {
+            display: block;
+        }
+        .export-section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .export-options {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .export-options label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .export-options select {
+            padding: 8px;
+            background: #1a1a1a;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .preview-container {
+            background: #000;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            margin: 0 auto 20px;
+            background: #000;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 40vh;
+        }
+        video {
+            max-width: 100%;
+            height: 100%;
+            display: block;
+            border-radius: 4px;
+            object-fit: contain;
+        }
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 20px;
+            background: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+        .btn-secondary {
+            background: #555;
+        }
+        .btn-secondary:hover {
+            background: #666;
+        }
+        .btn-danger {
+            background: #f44336;
+        }
+        .btn-danger:hover {
+            background: #da190b;
+        }
+        .seek-bar {
+            flex: 1;
+            min-width: 200px;
+            height: 8px;
+            background: #555;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+        .seek-bar-progress {
+            height: 100%;
+            background: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            pointer-events: none;
+        }
+        .time-display {
+            font-size: 14px;
+            color: #ccc;
+            min-width: 120px;
+        }
+        .timeline-section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .timeline-container {
+            position: relative;
+            height: 80px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+        .timeline-frames {
+            display: flex;
+            height: 100%;
+        }
+        .timeline-frame {
+            flex: 1;
+            background-size: cover;
+            background-position: center;
+            border-right: 1px solid #333;
+        }
+        .marker {
+            position: absolute;
+            top: 0;
+            width: 3px;
+            height: 100%;
+            background: #ff4444;
+            cursor: move;
+            z-index: 10;
+        }
+        .marker::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: -5px;
+            width: 13px;
+            height: 13px;
+            background: #ff4444;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+        .marker-label {
+            position: absolute;
+            top: -25px;
+            left: -15px;
+            background: #ff4444;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .markers-list {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .marker-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            background: #1a1a1a;
+            margin-bottom: 5px;
+            border-radius: 4px;
+        }
+        .marker-item img {
+            width: 80px;
+            height: 45px;
+            object-fit: cover;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+        .marker-info {
+            flex: 1;
+            font-size: 14px;
+        }
+        .frame-controls {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 id="title">動画切り抜きソフト</h1>
+        </div>
+
+        <div class="drop-zone" id="dropZone">
+            <h2>動画ファイルをドラッグ&ドロップ</h2>
+            <p>または クリックしてファイルを選択</p>
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+        </div>
+
+        <div class="preview-section" id="previewSection">
+            <div class="export-section">
+                <h3>書き出し設定</h3>
+                <div class="export-options">
+                    <label>
+                        フォーマット:
+                        <select id="formatSelect">
+                            <option value="png">PNG</option>
+                            <option value="jpeg">JPEG</option>
+                        </select>
+                    </label>
+                    <button class="btn" id="exportBtn">一括書き出し</button>
+                    <button class="btn btn-danger" id="resetBtn">リセット</button>
+                </div>
+            </div>
+
+            <div class="preview-container">
+                <div class="video-wrapper" id="videoWrapper">
+                    <video id="videoPlayer"></video>
+                </div>
+                <div class="controls">
+                    <button class="btn" id="playBtn">再生</button>
+                    <button class="btn btn-secondary btn-small" id="prevFrameBtn">◀ 1フレーム</button>
+                    <button class="btn btn-secondary btn-small" id="nextFrameBtn">1フレーム ▶</button>
+                    <div class="seek-bar" id="seekBar">
+                        <div class="seek-bar-progress" id="seekBarProgress"></div>
+                    </div>
+                    <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+                    <button class="btn btn-secondary" id="addMarkerBtn">フレーム追加</button>
+                </div>
+            </div>
+
+            <div class="timeline-section">
+                <h3>タイムライン</h3>
+                <div class="timeline-container" id="timelineContainer">
+                    <div class="timeline-frames" id="timelineFrames"></div>
+                </div>
+                <div class="markers-list" id="markersList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewSection = document.getElementById('previewSection');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const videoWrapper = document.getElementById('videoWrapper');
+        const playBtn = document.getElementById('playBtn');
+        const prevFrameBtn = document.getElementById('prevFrameBtn');
+        const nextFrameBtn = document.getElementById('nextFrameBtn');
+        const seekBar = document.getElementById('seekBar');
+        const seekBarProgress = document.getElementById('seekBarProgress');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const addMarkerBtn = document.getElementById('addMarkerBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const timelineContainer = document.getElementById('timelineContainer');
+        const timelineFrames = document.getElementById('timelineFrames');
+        const markersList = document.getElementById('markersList');
+        const formatSelect = document.getElementById('formatSelect');
+        const exportBtn = document.getElementById('exportBtn');
+
+        let markers = [];
+        let isDraggingMarker = false;
+        let currentMarker = null;
+        let isPlaying = false;
+        let videoFileName = '';
+        let isHoveringTimeline = false;
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('video/')) {
+                loadVideo(file);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                loadVideo(file);
+            }
+        });
+
+        function loadVideo(file) {
+            videoFileName = file.name.replace(/\.[^/.]+$/, '');
+            const url = URL.createObjectURL(file);
+            videoPlayer.src = url;
+            dropZone.classList.add('hidden');
+            previewSection.classList.add('active');
+            markers = [];
+            updateMarkersList();
+            
+            videoPlayer.addEventListener('loadedmetadata', () => {
+                generateTimelineFrames();
+            });
+            document.getElementById('title').remove();
+        }
+
+        videoWrapper.addEventListener('click', () => {
+            if (videoPlayer.paused) {
+                videoPlayer.play();
+            } else {
+                videoPlayer.pause();
+            }
+        });
+
+        playBtn.addEventListener('click', () => {
+            if (videoPlayer.paused) {
+                videoPlayer.play();
+            } else {
+                videoPlayer.pause();
+            }
+        });
+
+        videoPlayer.addEventListener('play', () => {
+            playBtn.textContent = '一時停止';
+            isPlaying = true;
+        });
+
+        videoPlayer.addEventListener('pause', () => {
+            playBtn.textContent = '再生';
+            isPlaying = false;
+        });
+
+        videoPlayer.addEventListener('timeupdate', () => {
+            const progress = (videoPlayer.currentTime / videoPlayer.duration) * 100;
+            seekBarProgress.style.width = progress + '%';
+            updateTimeDisplay();
+        });
+
+        prevFrameBtn.addEventListener('click', () => {
+            videoPlayer.currentTime = Math.max(0, videoPlayer.currentTime - 1/30);
+        });
+
+        nextFrameBtn.addEventListener('click', () => {
+            videoPlayer.currentTime = Math.min(videoPlayer.duration, videoPlayer.currentTime + 1/30);
+        });
+
+        seekBar.addEventListener('click', (e) => {
+            const rect = seekBar.getBoundingClientRect();
+            const pos = (e.clientX - rect.left) / rect.width;
+            videoPlayer.currentTime = pos * videoPlayer.duration;
+        });
+
+        function updateTimeDisplay() {
+            const current = formatTime(videoPlayer.currentTime);
+            const duration = formatTime(videoPlayer.duration);
+            timeDisplay.textContent = `${current} / ${duration}`;
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function generateTimelineFrames() {
+            timelineFrames.innerHTML = '';
+            const frameCount = 20;
+            const interval = videoPlayer.duration / frameCount;
+            
+            for (let i = 0; i < frameCount; i++) {
+                const frame = document.createElement('div');
+                frame.className = 'timeline-frame';
+                timelineFrames.appendChild(frame);
+                
+                const time = i * interval;
+                captureFrame(time, (dataUrl) => {
+                    frame.style.backgroundImage = `url(${dataUrl})`;
+                });
+            }
+        }
+
+        timelineContainer.addEventListener('mousemove', (e) => {
+            if (isPlaying || isDraggingMarker) return;
+            
+            const rect = timelineContainer.getBoundingClientRect();
+            const pos = (e.clientX - rect.left) / rect.width;
+            const time = pos * videoPlayer.duration;
+            videoPlayer.currentTime = time;
+            isHoveringTimeline = true;
+        });
+
+        timelineContainer.addEventListener('mouseleave', () => {
+            isHoveringTimeline = false;
+        });
+
+        timelineContainer.addEventListener('click', (e) => {
+            if (isDraggingMarker) return;
+            
+            const rect = timelineContainer.getBoundingClientRect();
+            const pos = (e.clientX - rect.left) / rect.width;
+            const time = pos * videoPlayer.duration;
+            addMarker(time);
+        });
+
+        addMarkerBtn.addEventListener('click', () => {
+            addMarker(videoPlayer.currentTime);
+        });
+
+        function addMarker(time) {
+            const marker = {
+                id: Date.now(),
+                time: time,
+                position: (time / videoPlayer.duration) * 100
+            };
+            markers.push(marker);
+            renderMarkers();
+            updateMarkersList();
+        }
+
+        function renderMarkers() {
+            document.querySelectorAll('.marker').forEach(m => m.remove());
+            
+            markers.forEach((marker, index) => {
+                const markerEl = document.createElement('div');
+                markerEl.className = 'marker';
+                markerEl.style.left = marker.position + '%';
+                markerEl.innerHTML = `<div class="marker-label">${index + 1}</div>`;
+                markerEl.dataset.id = marker.id;
+                
+                markerEl.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                    isDraggingMarker = true;
+                    currentMarker = marker;
+                });
+                
+                timelineContainer.appendChild(markerEl);
+            });
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDraggingMarker && currentMarker) {
+                const rect = timelineContainer.getBoundingClientRect();
+                let pos = (e.clientX - rect.left) / rect.width;
+                pos = Math.max(0, Math.min(1, pos));
+                currentMarker.position = pos * 100;
+                currentMarker.time = pos * videoPlayer.duration;
+                renderMarkers();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDraggingMarker) {
+                isDraggingMarker = false;
+                currentMarker = null;
+                updateMarkersList();
+            }
+        });
+
+        function updateMarkersList() {
+            markersList.innerHTML = '';
+            markers.sort((a, b) => a.time - b.time).forEach((marker, index) => {
+                const item = document.createElement('div');
+                item.className = 'marker-item';
+                
+                captureFrame(marker.time, (dataUrl) => {
+                    item.innerHTML = `
+                        <img src="${dataUrl}" alt="Frame ${index + 1}">
+                        <div class="marker-info">
+                            <div>フレーム ${index + 1}</div>
+                            <div>${formatTime(marker.time)}</div>
+                        </div>
+                        <button class="btn btn-danger btn-small" onclick="removeMarker(${marker.id})">削除</button>
+                    `;
+                });
+                
+                markersList.appendChild(item);
+            });
+        }
+
+        window.removeMarker = function(id) {
+            markers = markers.filter(m => m.id !== id);
+            renderMarkers();
+            updateMarkersList();
+        };
+
+        function captureFrame(time, callback) {
+            const tempVideo = document.createElement('video');
+            tempVideo.src = videoPlayer.src;
+            tempVideo.currentTime = time;
+            tempVideo.addEventListener('seeked', () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = tempVideo.videoWidth;
+                canvas.height = tempVideo.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(tempVideo, 0, 0);
+                callback(canvas.toDataURL('image/png'));
+            }, { once: true });
+        }
+
+        exportBtn.addEventListener('click', () => {
+            if (markers.length === 0) {
+                alert('フレームが選択されていません');
+                return;
+            }
+            
+            const format = formatSelect.value;
+            const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+            
+            markers.sort((a, b) => a.time - b.time).forEach((marker, index) => {
+                const tempVideo = document.createElement('video');
+                tempVideo.src = videoPlayer.src;
+                tempVideo.currentTime = marker.time;
+                tempVideo.addEventListener('seeked', () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = tempVideo.videoWidth;
+                    canvas.height = tempVideo.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(tempVideo, 0, 0);
+                    
+                    canvas.toBlob((blob) => {
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.download = `${videoFileName}_${String(index + 1).padStart(3, '0')}.${format}`;
+                        link.href = url;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                    }, mimeType);
+                }, { once: true });
+            });
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (confirm('動画をリセットしますか？')) {
+                videoPlayer.pause();
+                videoPlayer.src = '';
+                markers = [];
+                previewSection.classList.remove('active');
+                dropZone.classList.remove('hidden');
+                fileInput.value = '';
+            }
+        });
+    </script>
+</body>
+</html>
