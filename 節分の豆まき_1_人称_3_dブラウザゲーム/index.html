@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>節分の豆まきFPS</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background:#000; }
+    #ui { position: fixed; top: 10px; left: 10px; color: #fff; font-family: sans-serif; }
+    #center { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin-left:-3px; margin-top:-3px; background:#fff; border-radius:50%; }
+    #hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); color:#fff; font-family:sans-serif; opacity:0.8; }
+  </style>
+</head>
+<body>
+<div id="ui">鬼残り: <span id="count"></span></div>
+<div id="center"></div>
+<div id="hint">クリックで開始 / WASD移動 / マウスで視点 / クリックで豆を投げる</div>
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+  import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
+
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  const controls = new PointerLockControls(camera, document.body);
+
+  document.body.addEventListener('click', () => controls.lock());let scene = new THREE.Scene();
+scene.background = new THREE.Color(0x223344);
+
+//let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// ライト
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+let dir = new THREE.DirectionalLight(0xffffff, 0.8);
+dir.position.set(5,10,2);
+scene.add(dir);
+
+// 床
+let floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(100,100),
+  new THREE.MeshStandardMaterial({color:0x335533})
+);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+// 操作
+//let controls = new THREE.PointerLockControls(camera, document.body);
+document.body.addEventListener('click', ()=>controls.lock());
+scene.add(controls.getObject());
+
+let move = {f:false,b:false,l:false,r:false};
+document.addEventListener('keydown',e=>{
+  if(e.code==='KeyW') move.f=true;
+  if(e.code==='KeyS') move.b=true;
+  if(e.code==='KeyA') move.l=true;
+  if(e.code==='KeyD') move.r=true;
+});
+document.addEventListener('keyup',e=>{
+  if(e.code==='KeyW') move.f=false;
+  if(e.code==='KeyS') move.b=false;
+  if(e.code==='KeyA') move.l=false;
+  if(e.code==='KeyD') move.r=false;
+});
+
+// 鬼（的）
+let onis = [];
+let oniGeo = new THREE.BoxGeometry(1,2,1);
+let oniMat = new THREE.MeshStandardMaterial({color:0xcc3333});
+for(let i=0;i<10;i++){
+  let o = new THREE.Mesh(oniGeo, oniMat.clone());
+  o.position.set((Math.random()-0.5)*30,1,(Math.random()-0.5)*30);
+  scene.add(o);
+  onis.push(o);
+}
+
+// 豆
+let beans = [];
+function throwBean(){
+  let b = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1,8,8),
+    new THREE.MeshStandardMaterial({color:0xf5e6aa})
+  );
+  b.position.copy(camera.position);
+  b.velocity = new THREE.Vector3();
+  camera.getWorldDirection(b.velocity);
+  b.velocity.multiplyScalar(0.8);
+  scene.add(b);
+  beans.push(b);
+}
+document.addEventListener('mousedown', ()=>{
+  if(controls.isLocked) throwBean();
+});
+
+// 更新
+function animate(){
+  requestAnimationFrame(animate);
+
+  // 移動
+  let speed = 0.1;
+  if(move.f) controls.moveForward(speed);
+  if(move.b) controls.moveForward(-speed);
+  if(move.l) controls.moveRight(-speed);
+  if(move.r) controls.moveRight(speed);
+
+  // 豆更新
+  beans.forEach((b,bi)=>{
+    b.position.add(b.velocity);
+    // 衝突判定
+    onis.forEach((o,oi)=>{
+      if(o && b.position.distanceTo(o.position)<1){
+        scene.remove(o);
+        onis[oi]=null;
+        scene.remove(b);
+        beans[bi]=null;
+      }
+    });
+  });
+  beans = beans.filter(b=>b);
+  onis = onis.filter(o=>o);
+
+  document.getElementById('count').textContent = onis.length;
+
+  renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
