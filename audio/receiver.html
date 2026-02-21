@@ -8,58 +8,36 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: 'Segoe UI', sans-serif;
-  background: #1a2a1a;
-  color: #e0e0e0;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  background: #1a2a1a; color: #e0e0e0;
+  min-height: 100vh; display: flex;
+  align-items: center; justify-content: center; padding: 20px;
 }
 .card {
-  background: #1b2e1b;
-  border-radius: 16px;
-  padding: 28px 22px;
-  width: 100%;
-  max-width: 420px;
+  background: #1b2e1b; border-radius: 16px; padding: 28px 22px;
+  width: 100%; max-width: 420px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 h1 { font-size: 1.4rem; color: #66bb6a; margin-bottom: 4px; }
 .subtitle { color: #81c784; font-size: 0.82rem; margin-bottom: 22px; }
 label { display: block; font-size: 0.82rem; color: #a5d6a7; margin-bottom: 5px; }
 input {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 8px;
-  border: 1px solid #388e3c;
-  background: #0a1f0a;
-  color: #e0e0e0;
-  font-size: 1rem;
-  margin-bottom: 14px;
+  width: 100%; padding: 12px 14px; border-radius: 8px;
+  border: 1px solid #388e3c; background: #0a1f0a;
+  color: #e0e0e0; font-size: 1rem; margin-bottom: 14px;
 }
 button {
-  width: 100%;
-  padding: 13px;
-  border-radius: 10px;
-  border: none;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: 0.2s;
+  width: 100%; padding: 13px; border-radius: 10px;
+  border: none; font-size: 1rem; font-weight: 700;
+  cursor: pointer; transition: 0.2s;
 }
 .btn-primary { background: #66bb6a; color: #0a1f0a; }
 .btn-primary:hover:not(:disabled) { background: #81c784; }
 .btn-danger  { background: #e53935; color: #fff; margin-top: 10px; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status {
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  font-size: 0.88rem;
-  background: #0a1f0a;
-  border-left: 4px solid #66bb6a;
-  line-height: 1.7;
-  min-height: 56px;
+  margin-top: 18px; padding: 14px 16px; border-radius: 10px;
+  font-size: 0.88rem; background: #0a1f0a;
+  border-left: 4px solid #66bb6a; line-height: 1.7; min-height: 56px;
 }
 .status.error   { border-left-color: #e53935; }
 .status.ok      { border-left-color: #66bb6a; }
@@ -70,21 +48,15 @@ audio { display: none; }
 .vol-control { margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:#a5d6a7; }
 input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointer; }
 .config-section {
-  background: #0a1f0a;
-  border: 1px solid #1b5e20;
-  border-radius: 10px;
-  padding: 14px;
-  margin-bottom: 16px;
+  background: #0a1f0a; border: 1px solid #1b5e20;
+  border-radius: 10px; padding: 14px; margin-bottom: 16px;
 }
 .config-section summary {
-  cursor: pointer;
-  font-size: 0.83rem;
-  color: #66bb6a;
-  font-weight: 600;
-  user-select: none;
+  cursor: pointer; font-size: 0.83rem;
+  color: #66bb6a; font-weight: 600; user-select: none;
 }
 .config-section[open] summary { margin-bottom: 10px; }
-.hint { font-size:0.76rem; color:#4a7c59; margin-top:-10px; margin-bottom:10px; line-height:1.5; }
+.hint { font-size: 0.76rem; color: #4a7c59; margin-top: -10px; margin-bottom: 10px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -95,14 +67,9 @@ input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointe
   <details class="config-section" id="configDetails" open>
     <summary>⚙️ Firebase 設定（初回のみ）</summary>
     <label>Firebase Database URL</label>
-    <input type="text" id="fbUrl"
-           placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
-    <p class="hint">
-      ※ API Key は不要です。Database URL のみで動作します。<br>
-      ※ 設定は localStorage に保存されます。
-    </p>
-    <button class="btn-primary"
-            onclick="saveConfig()"
+    <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
+    <p class="hint">※ API Key 不要。Database URL のみ。設定は localStorage に保存されます。</p>
+    <button class="btn-primary" onclick="saveConfig()"
             style="width:auto;padding:8px 20px;font-size:0.83rem;">保存</button>
   </details>
 
@@ -124,60 +91,47 @@ input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointe
 </div>
 
 <script>
-// ── Firebase REST helper（認証なし）────────────────────────────
+// ── Firebase REST ─────────────────────────────────────────────
 let FB_URL = '';
+const ep = (path) => `${FB_URL}/${path}.json`;
 
-function endpoint(path) {
-  return `${FB_URL}/${path}.json`;
+async function fbGet(path) {
+  const r = await fetch(ep(path));
+  if (!r.ok) throw new Error(`GET ${r.status}: ${await r.text()}`);
+  return r.json();
 }
-
 async function fbPut(path, data) {
-  const res = await fetch(endpoint(path), {
-    method: 'PUT',
-    body: JSON.stringify(data),
+  const r = await fetch(ep(path), {
+    method: 'PUT', body: JSON.stringify(data),
     headers: { 'Content-Type': 'application/json' }
   });
-  if (!res.ok) throw new Error(`Firebase PUT failed: ${res.status} ${await res.text()}`);
+  if (!r.ok) throw new Error(`PUT ${r.status}: ${await r.text()}`);
 }
-
 async function fbPatch(path, data) {
-  const res = await fetch(endpoint(path), {
-    method: 'PATCH',
-    body: JSON.stringify(data),
+  const r = await fetch(ep(path), {
+    method: 'PATCH', body: JSON.stringify(data),
     headers: { 'Content-Type': 'application/json' }
   });
-  if (!res.ok) throw new Error(`Firebase PATCH failed: ${res.status} ${await res.text()}`);
+  if (!r.ok) throw new Error(`PATCH ${r.status}: ${await r.text()}`);
 }
-
 async function fbDelete(path) {
-  await fetch(endpoint(path), { method: 'DELETE' });
-}
-
-function fbListen(path, callback) {
-  const es = new EventSource(endpoint(path));
-  es.addEventListener('put',   (e) => { const {data} = JSON.parse(e.data); if (data !== null) callback(data); });
-  es.addEventListener('patch', (e) => { const {data} = JSON.parse(e.data); if (data !== null) callback(data); });
-  es.onerror = (e) => console.warn('EventSource error', e);
-  return es;
+  await fetch(ep(path), { method: 'DELETE' });
 }
 
 // ── Config ─────────────────────────────────────────────────────
 function saveConfig() {
   const url = document.getElementById('fbUrl').value.trim().replace(/\/$/, '');
-  if (!url.startsWith('https://')) {
-    return log('⚠️ https:// から始まる Database URL を入力してください', 'error');
-  }
+  if (!url.startsWith('https://')) return log('⚠️ https://から始まるURLを入力してください', 'error');
   FB_URL = url;
   localStorage.setItem('fb_url', FB_URL);
-  log('✅ Firebase設定を保存しました。', 'ok');
+  log('✅ 設定を保存しました。', 'ok');
   document.getElementById('configDetails').removeAttribute('open');
 }
-
 function loadConfig() {
   FB_URL = localStorage.getItem('fb_url') || '';
   if (FB_URL) {
     document.getElementById('fbUrl').value = FB_URL;
-    log('✅ Firebase設定を読み込みました。ルームIDを入力して接続してください。', 'ok');
+    log('✅ 設定を読み込みました。ルームIDを入力して接続してください。', 'ok');
     document.getElementById('configDetails').removeAttribute('open');
   }
 }
@@ -191,9 +145,11 @@ for (let i = 0; i < 20; i++) {
 }
 
 // ── State ───────────────────────────────────────────────────────
-let pc = null, gainNode = null, audioCtx = null, analyser = null;
-let esSignal = null, animFrame = null;
+let pc = null, gainNode = null, audioCtx = null, analyserNode = null;
+let pollTimer = null, animFrame = null;
 let myViewerId = null, roomId = '';
+let offerHandled = false;
+const POLL_MS   = 1500;
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 function log(msg, type = '') {
@@ -202,18 +158,19 @@ function log(msg, type = '') {
   b.innerHTML = msg;
 }
 
-// ── Connect ────────────────────────────────────────────────────
+// ── 接続開始 ──────────────────────────────────────────────────
 async function connect() {
   if (!FB_URL) return log('⚠️ 先にFirebase Database URLを保存してください', 'error');
   roomId = document.getElementById('roomId').value.trim();
   if (!roomId) return log('⚠️ ルームIDを入力してください', 'error');
-
   document.getElementById('btnConnect').disabled = true;
+
   myViewerId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  offerHandled = false;
 
   log('⏳ PCの配信を待機中... オファーをリクエストします', 'waiting');
 
-  // Broadcasterへオファーをリクエスト
+  // request-offer を送信
   try {
     await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
       type: 'request-offer',
@@ -221,24 +178,43 @@ async function connect() {
     });
   } catch (e) {
     document.getElementById('btnConnect').disabled = false;
-    return log(`❌ Firebase書き込み失敗: ${e.message}<br>Realtime Databaseのルール設定を確認してください。`, 'error');
+    return log(`❌ Firebase書き込み失敗: ${e.message}`, 'error');
   }
 
-  // Broadcasterからのシグナルを受信
-  esSignal = fbListen(`rooms/${roomId}/signals/toViewer/${myViewerId}`, async (data) => {
-    if (data.type === 'offer') {
+  // ポーリング開始
+  pollTimer = setInterval(pollSignals, POLL_MS);
+}
+
+// ── ポーリングループ ──────────────────────────────────────────
+async function pollSignals() {
+  if (!roomId || !myViewerId) return;
+  try {
+    const data = await fbGet(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
+    if (!data) return;
+
+    // Offerを受信
+    if (data.type === 'offer' && !offerHandled) {
+      offerHandled = true;
+      log('📨 オファーを受信しました。接続中...', 'waiting');
       await handleOffer(data.sdp);
     }
+
+    // ICE candidatesを受信
     if (data.ice) {
       if (!pc) return;
       const candidates = Array.isArray(data.ice) ? data.ice : Object.values(data.ice);
       for (const c of candidates) {
         await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       }
+      // 処理済みICEを削除
+      await fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}/ice`);
     }
-  });
+  } catch (e) {
+    console.warn('pollSignals error:', e.message);
+  }
 }
 
+// ── Offer処理 ────────────────────────────────────────────────
 async function handleOffer(offerSdp) {
   pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
@@ -252,14 +228,16 @@ async function handleOffer(offerSdp) {
       fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
         type: 'ice',
         candidate: iceBatch.splice(0)
-      }).catch(console.error);
-    }, 100);
+      }).catch(console.warn);
+    }, 150);
   };
 
   pc.ontrack = (e) => {
     setupAudio(e.streams[0]);
     log('🎵 受信・再生中！', 'ok');
     document.getElementById('btnDisconnect').disabled = false;
+    clearInterval(pollTimer); // offer/ICE受け取り完了でポーリング停止
+    pollTimer = null;
   };
 
   pc.onconnectionstatechange = () => {
@@ -278,22 +256,24 @@ async function handleOffer(offerSdp) {
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
+  // Answerを送信
   await fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
     type: 'answer',
     sdp: { type: answer.type, sdp: answer.sdp }
   });
 }
 
+// ── Audio setup ───────────────────────────────────────────────
 function setupAudio(stream) {
-  audioCtx = new AudioContext();
-  const src = audioCtx.createMediaStreamSource(stream);
-  gainNode  = audioCtx.createGain();
+  audioCtx     = new AudioContext();
+  const src    = audioCtx.createMediaStreamSource(stream);
+  gainNode     = audioCtx.createGain();
   gainNode.gain.value = parseFloat(document.getElementById('volume').value);
-  analyser  = audioCtx.createAnalyser();
-  analyser.fftSize = 64;
+  analyserNode = audioCtx.createAnalyser();
+  analyserNode.fftSize = 64;
+  const dest   = audioCtx.createMediaStreamDestination();
   src.connect(gainNode);
-  gainNode.connect(analyser);
-  const dest = audioCtx.createMediaStreamDestination();
+  gainNode.connect(analyserNode);
   gainNode.connect(dest);
   document.getElementById('audioEl').srcObject = dest.stream;
   document.getElementById('audioEl').play().catch(() => {});
@@ -301,14 +281,15 @@ function setupAudio(stream) {
 }
 
 function disconnect() {
+  clearInterval(pollTimer); pollTimer = null;
   if (pc)       { pc.close(); pc = null; }
-  if (esSignal) { esSignal.close(); esSignal = null; }
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
   if (roomId && myViewerId) {
     fbDelete(`rooms/${roomId}/signals/toBC/${myViewerId}`);
     fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
   }
   stopVisualizer();
+  offerHandled = false;
   document.getElementById('btnConnect').disabled = false;
   document.getElementById('btnDisconnect').disabled = true;
   log('切断しました');
@@ -321,9 +302,9 @@ function setVolume(val) {
 
 function startVisualizer() {
   const bars = viz.querySelectorAll('.bar');
-  const data = new Uint8Array(analyser.frequencyBinCount);
+  const data = new Uint8Array(analyserNode.frequencyBinCount);
   (function draw() {
-    analyser.getByteFrequencyData(data);
+    analyserNode.getByteFrequencyData(data);
     bars.forEach((bar, i) => {
       bar.style.height = ((data[i] || 0) / 255 * 36 + 4) + 'px';
     });
