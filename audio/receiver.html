@@ -28,8 +28,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status.ok      { border-left-color: #66bb6a; }
 .status.waiting { border-left-color: #ffca28; }
 .log-box { margin-top:12px; background:#050f05; border:1px solid #1b5e20; border-radius:8px;
-  padding:10px 12px; font-family:monospace; font-size:0.75rem; color:#a5d6a7;
-  max-height:200px; overflow-y:auto; line-height:1.6; }
+  padding:10px 12px; font-family:monospace; font-size:0.72rem; color:#a5d6a7;
+  max-height:220px; overflow-y:auto; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
 .visualizer { margin-top:14px; display:flex; gap:3px; align-items:flex-end; height:40px; }
 .bar { flex:1; background:#66bb6a; border-radius:3px 3px 0 0; min-height:4px; transition:height 0.05s; }
 .vol-control { margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:#a5d6a7; }
@@ -91,13 +91,21 @@ function loadConfig() {
 }
 
 const logBox=document.getElementById('logBox');
-function dlog(msg){ const t=new Date().toTimeString().slice(0,8); logBox.innerHTML+=`<div>[${t}] ${msg}</div>`; logBox.scrollTop=logBox.scrollHeight; console.log('[RX]',msg); }
+let logCount=0;
+function dlog(msg){
+  const t=new Date().toTimeString().slice(0,8);
+  logBox.innerHTML+=`<div>[${t}] ${msg}</div>`;
+  logBox.scrollTop=logBox.scrollHeight;
+  console.log('[RX]',msg);
+  // 古いログが増えすぎないよう上限管理
+  if(++logCount>200){ logBox.innerHTML=logBox.innerHTML.split('<div>').slice(-100).join('<div>'); }
+}
 function log(msg,type=''){ const b=document.getElementById('statusBox'); b.className='status '+type; b.innerHTML=msg; }
 
 function playTestBeep(freq=440,dur=0.4){
   const ctx=new AudioContext();
   ctx.resume().then(()=>{
-    const osc=ctx.createOscillator(), g=ctx.createGain();
+    const osc=ctx.createOscillator(),g=ctx.createGain();
     osc.connect(g); g.connect(ctx.destination);
     osc.frequency.value=freq;
     g.gain.setValueAtTime(0.3,ctx.currentTime);
@@ -123,12 +131,11 @@ async function connect() {
   if(!roomId) return log('⚠️ ルームIDを入力してください','error');
   document.getElementById('btnConnect').disabled=true;
 
-  // ユーザー操作コンテキストでAudioContext作成
   audioCtx=new AudioContext();
   await audioCtx.resume();
   dlog(`AudioContext state=${audioCtx.state} sampleRate=${audioCtx.sampleRate}`);
 
-  playTestBeep(880,0.15); // 接続開始音
+  playTestBeep(880,0.15);
 
   myViewerId=Date.now().toString(36)+Math.random().toString(36).slice(2);
   offerHandled=false;
@@ -171,50 +178,44 @@ async function handleOffer(offerSdp) {
     if(!candidate) return;
     iceBatch.push(candidate.toJSON());
     clearTimeout(iceTimer);
-    iceTimer=setTimeout(()=>{ fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`,{type:'ice',candidate:iceBatch.splice(0)}).catch(console.warn); },150);
+    iceTimer=setTimeout(()=>{
+      fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`,{type:'ice',candidate:iceBatch.splice(0)}).catch(console.warn);
+    },150);
   };
+
   pc.oniceconnectionstatechange=()=>dlog(`ICE: ${pc.iceConnectionState}`);
   pc.onconnectionstatechange=()=>{
     dlog(`Conn: ${pc.connectionState}`);
     if(pc.connectionState==='connected'){
       log('✅ 接続確立 - オーディオ受信中','ok');
-      startReceiverStats(); // 受信統計ログ開始
+      startReceiverStats();
     }
     if(pc.connectionState==='failed') log('❌ 接続失敗','error');
     if(pc.connectionState==='disconnected'){ log('⚠️ 切断','warning'); stopVisualizer(); }
   };
 
   pc.ontrack=(e)=>{
-    dlog(`★ ontrack: kind=${e.track.kind} readyState=${e.track.readyState} enabled=${e.track.enabled} muted=${e.track.muted}`);
-    if(e.streams.length>0){
-      dlog(`  streams[0] id=${e.streams[0].id} active=${e.streams[0].active}`);
-      dlog(`  audioTracks: ${e.streams[0].getAudioTracks().map(t=>t.readyState+'/en='+t.enabled).join(',')}`);
+    const track=e.track;
+    dlog(`★ ontrack kind=${track.kind} readyState=${track.readyState} enabled=${track.enabled} muted=${track.muted}`);
+
+    // ── muted=true の場合: unmute イベントを待って再生 ──────
+    // WebRTC仕様上、ICE接続確立前にontrackが発火するとmuted=trueになる
+    // unmuteイベントが発火した時点でメディアデータが実際に流れ始める
+    track.onunmute=()=>{
+      dlog(`★ track.onunmute 発火! readyState=${track.readyState} → 再生開始`);
+      startPlayback(e.streams[0]||new MediaStream([track]));
+    };
+    track.onmute=()=>dlog(`★ track.onmute 発火`);
+    track.onended=()=>dlog(`★ track.onended 発火`);
+
+    // すでに unmuted なら即座に再生
+    if(!track.muted){
+      dlog('track は既に unmuted → 即再生');
+      startPlayback(e.streams[0]||new MediaStream([track]));
+    } else {
+      dlog('track は muted → unmute イベント待機中...');
+      log('⏳ メディア到着待ち (muted)...','waiting');
     }
-
-    const stream=e.streams[0]||new MediaStream([e.track]);
-
-    // ── <audio>に直接セット ──────────────────────────────
-    audioEl.srcObject=stream;
-    dlog(`audioEl.srcObject set, muted=${audioEl.muted}, volume=${audioEl.volume}`);
-
-    audioEl.play()
-      .then(()=>{
-        dlog('✅ audioEl.play() 成功');
-        log('🎵 受信・再生中！','ok');
-        playTestBeep(1320,0.2); // 接続完了音
-        document.getElementById('btnDisconnect').disabled=false;
-        clearInterval(pollTimer); pollTimer=null;
-        setupVisualizer(stream);
-        // トラックレベル監視
-        startTrackLevelMonitor(stream);
-      })
-      .catch(err=>{
-        dlog(`❌ audioEl.play() 失敗: ${err.name}: ${err.message}`);
-        log('▶️ 画面をタップして再生してください','waiting');
-        document.getElementById('btnDisconnect').disabled=false;
-        clearInterval(pollTimer); pollTimer=null;
-        document.body.addEventListener('click',()=>{ audioEl.play().catch(e=>dlog('tap play失敗:'+e)); },{once:true});
-      });
   };
 
   await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
@@ -226,60 +227,124 @@ async function handleOffer(offerSdp) {
   dlog('answer 送信OK');
 }
 
-// ── RTCStats: 受信バイト数・パケット数を3秒ごとにログ ────────
-function startReceiverStats() {
-  let prevBytesReceived=0, prevPackets=0;
+// ── 実際の再生開始（unmute後 or 即時）───────────────────────
+function startPlayback(stream) {
+  dlog(`startPlayback: stream.active=${stream.active} tracks=${stream.getTracks().map(t=>t.kind+'/'+t.readyState+'/muted='+t.muted).join(',')}`);
+
+  audioEl.srcObject=stream;
+  audioEl.play()
+    .then(()=>{
+      dlog('✅ audioEl.play() 成功');
+      log('🎵 受信・再生中！','ok');
+      playTestBeep(1320,0.2);
+      document.getElementById('btnDisconnect').disabled=false;
+      clearInterval(pollTimer); pollTimer=null;
+      startRawDataMonitor(stream);
+    })
+    .catch(err=>{
+      dlog(`❌ audioEl.play() 失敗: ${err.name}: ${err.message}`);
+      log('▶️ 画面をタップして再生してください','waiting');
+      document.getElementById('btnDisconnect').disabled=false;
+      clearInterval(pollTimer); pollTimer=null;
+      document.body.addEventListener('click',()=>{
+        audioEl.play()
+          .then(()=>{ dlog('tap→play成功'); startRawDataMonitor(stream); })
+          .catch(e=>dlog('tap→play失敗: '+e));
+      },{once:true});
+    });
+}
+
+// ── 生データ監視: AudioWorkletProcessor でサンプルを直接取得 ──
+// AudioWorkletが使えない場合はScriptProcessorNodeにフォールバック
+async function startRawDataMonitor(stream) {
+  dlog('--- 生データ監視 開始 ---');
+  try {
+    const src=audioCtx.createMediaStreamSource(stream);
+
+    // --- ScriptProcessorNode で生PCMサンプルを確認 ---
+    const bufSize=4096;
+    const spn=audioCtx.createScriptProcessor(bufSize,1,1);
+    let callCount=0;
+    let lastLogTime=0;
+
+    spn.onaudioprocess=(ev)=>{
+      const inputData=ev.inputBuffer.getChannelData(0); // Float32Array
+      callCount++;
+      const now=Date.now();
+
+      // 3秒ごとにログ
+      if(now-lastLogTime < 3000) return;
+      lastLogTime=now;
+
+      // RMS計算
+      let sumSq=0;
+      for(let i=0;i<inputData.length;i++) sumSq+=inputData[i]*inputData[i];
+      const rms=Math.sqrt(sumSq/inputData.length);
+
+      // 先頭16サンプルを16進数で表示（毎回変化すれば実データ受信中）
+      const hex=Array.from(inputData.slice(0,16))
+        .map(v=>{
+          // float32 を 16bit PCM相当の整数に変換して表示
+          const i16=Math.round(v*32767);
+          return (i16>=0?'+':'')+(i16.toString(16).padStart(4,'0'));
+        }).join(' ');
+
+      // ピーク値
+      let peak=0;
+      for(let i=0;i<inputData.length;i++) if(Math.abs(inputData[i])>peak) peak=Math.abs(inputData[i]);
+
+      dlog(`📊 [${callCount}回] RMS=${rms.toFixed(4)} peak=${peak.toFixed(4)}`);
+      dlog(`   先頭16smp(hex): ${hex}`);
+      dlog(`   ${rms>0.001 ? '✅ 音声データあり' : '❌ 無音 (全サンプルが0に近い)'}`);
+
+      // ビジュアライザー更新
+      updateVisualizer(inputData);
+    };
+
+    // srcをspnに繋ぐ（出力はdestinationに繋がない→audioElの再生に干渉しない）
+    src.connect(spn);
+    spn.connect(audioCtx.destination); // ScriptProcessorはdestinationに繋がないと動かないブラウザがある
+    // ただし音量0で接続して再生への干渉を避ける
+    const silentGain=audioCtx.createGain();
+    silentGain.gain.value=0;
+    spn.connect(silentGain);
+    silentGain.connect(audioCtx.destination);
+
+    dlog('ScriptProcessorNode 設定完了 (bufSize='+bufSize+')');
+  } catch(err){
+    dlog('生データ監視 失敗: '+err);
+  }
+}
+
+function updateVisualizer(float32Data){
+  const bars=viz.querySelectorAll('.bar');
+  const step=Math.floor(float32Data.length/bars.length);
+  bars.forEach((b,i)=>{
+    const v=Math.abs(float32Data[i*step]||0);
+    b.style.height=(v*36*4+4)+'px';
+  });
+}
+
+// ── RTCStats ────────────────────────────────────────────────
+function startReceiverStats(){
+  let prevBytes=0, prevPkts=0;
   statsTimer=setInterval(async()=>{
     if(!pc) return;
     try {
       const stats=await pc.getStats();
       stats.forEach(s=>{
         if(s.type==='inbound-rtp'&&s.kind==='audio'){
-          const dBytes=s.bytesReceived-prevBytesReceived;
-          const dPkts =s.packetsReceived-prevPackets;
-          prevBytesReceived=s.bytesReceived;
-          prevPackets=s.packetsReceived;
-          dlog(`📥 受信 bytes=${s.bytesReceived}(+${dBytes}B) pkts=${s.packetsReceived}(+${dPkts}) lost=${s.packetsLost} jitter=${(s.jitter*1000).toFixed(1)}ms`);
+          const db=s.bytesReceived-prevBytes;
+          const dp=s.packetsReceived-prevPkts;
+          prevBytes=s.bytesReceived; prevPkts=s.packetsReceived;
+          dlog(`📥 RTP bytes=${s.bytesReceived}(+${db}) pkts=${s.packetsReceived}(+${dp}) lost=${s.packetsLost} jitter=${(s.jitter*1000).toFixed(1)}ms`);
         }
       });
     } catch(e){}
   },3000);
 }
 
-// ── AudioContext AnalyserでRMS音量を測定・ログ ───────────────
-function startTrackLevelMonitor(stream) {
-  try {
-    // audioCtxはconnect()で作成済み
-    const src=audioCtx.createMediaStreamSource(stream);
-    const analyser=audioCtx.createAnalyser();
-    analyser.fftSize=256;
-    src.connect(analyser);
-    // destinationには繋がない（audioElが直接再生するため）
-
-    const data=new Uint8Array(analyser.frequencyBinCount);
-    let lastLogTime=0;
-    (function measureLevel(){
-      analyser.getByteFrequencyData(data);
-      const rms=Math.sqrt(data.reduce((s,v)=>s+v*v,0)/data.length);
-      // ビジュアライザー更新
-      const bars=viz.querySelectorAll('.bar');
-      bars.forEach((b,i)=>{ b.style.height=((data[i]||0)/255*36+4)+'px'; });
-      // 3秒ごとにRMSをログ
-      const now=Date.now();
-      if(now-lastLogTime>3000){
-        lastLogTime=now;
-        dlog(`🎚️ 受信音量 RMS=${rms.toFixed(2)} (0=無音, 50+=大音量) audioEl.paused=${audioEl.paused}`);
-      }
-      animFrame=requestAnimationFrame(measureLevel);
-    })();
-  } catch(e){ dlog('レベル監視失敗(非致命的): '+e); }
-}
-
-function setupVisualizer(stream) {
-  // startTrackLevelMonitorと統合済み
-}
-
-function disconnect() {
+function disconnect(){
   clearInterval(pollTimer); clearInterval(statsTimer);
   pollTimer=null; statsTimer=null;
   if(pc){ pc.close(); pc=null; }
@@ -298,7 +363,7 @@ function disconnect() {
 function setVolume(val){ audioEl.volume=parseFloat(val); document.getElementById('volLabel').textContent=Math.round(val*100)+'%'; }
 
 function stopVisualizer(){
-  if(animFrame){ cancelAnimationFrame(animFrame); animFrame=null; }
+  if(animFrame){cancelAnimationFrame(animFrame);animFrame=null;}
   viz.querySelectorAll('.bar').forEach(b=>b.style.height='4px');
 }
 
