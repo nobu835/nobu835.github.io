@@ -42,10 +42,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status.error   { border-left-color: #e53935; }
 .status.ok      { border-left-color: #66bb6a; }
 .status.waiting { border-left-color: #ffca28; }
-audio { display: none; }
 .visualizer { margin-top: 14px; display:flex; gap:3px; align-items:flex-end; height:40px; }
 .bar { flex:1; background:#66bb6a; border-radius:3px 3px 0 0; min-height:4px; transition:height 0.05s; }
-.vol-control { margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:#a5d6a7; }
+.vol-control {
+  margin-top: 14px; display:flex; align-items:center;
+  gap:10px; font-size:0.82rem; color:#a5d6a7;
+}
 input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointer; }
 .config-section {
   background: #0a1f0a; border: 1px solid #1b5e20;
@@ -56,7 +58,7 @@ input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointe
   color: #66bb6a; font-weight: 600; user-select: none;
 }
 .config-section[open] summary { margin-bottom: 10px; }
-.hint { font-size: 0.76rem; color: #4a7c59; margin-top: -10px; margin-bottom: 10px; line-height: 1.5; }
+.hint { font-size:0.76rem; color:#4a7c59; margin-top:-10px; margin-bottom:10px; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -83,10 +85,16 @@ input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointe
   <div class="visualizer" id="visualizer"></div>
   <div class="vol-control">
     🔊 音量
-    <input type="range" id="volume" min="0" max="2" step="0.05" value="1"
+    <input type="range" id="volume" min="0" max="1" step="0.02" value="1"
            oninput="setVolume(this.value)">
     <span id="volLabel">100%</span>
   </div>
+
+  <!--
+    autoplay: ユーザー操作（ボタン押下）後の再生なので許可される
+    playsinline: iOS Safariでインライン再生（全画面にならない）
+    muted は付けない（音を出すため）
+  -->
   <audio id="audioEl" autoplay playsinline></audio>
 </div>
 
@@ -136,7 +144,7 @@ function loadConfig() {
   }
 }
 
-// ── Visualizer ─────────────────────────────────────────────────
+// ── Visualizer DOM ─────────────────────────────────────────────
 const viz = document.getElementById('visualizer');
 for (let i = 0; i < 20; i++) {
   const b = document.createElement('div');
@@ -145,12 +153,18 @@ for (let i = 0; i < 20; i++) {
 }
 
 // ── State ───────────────────────────────────────────────────────
-let pc = null, gainNode = null, audioCtx = null, analyserNode = null;
-let pollTimer = null, animFrame = null;
-let myViewerId = null, roomId = '';
+let pc          = null;
+let audioCtx    = null;   // ビジュアライザー専用（出力には使わない）
+let analyserNode = null;
+let pollTimer   = null;
+let animFrame   = null;
+let myViewerId  = null;
+let roomId      = '';
 let offerHandled = false;
-const POLL_MS   = 1500;
+
+const POLL_MS    = 1500;
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const audioEl    = document.getElementById('audioEl');
 
 function log(msg, type = '') {
   const b = document.getElementById('statusBox');
@@ -165,12 +179,11 @@ async function connect() {
   if (!roomId) return log('⚠️ ルームIDを入力してください', 'error');
   document.getElementById('btnConnect').disabled = true;
 
-  myViewerId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  myViewerId   = Date.now().toString(36) + Math.random().toString(36).slice(2);
   offerHandled = false;
 
   log('⏳ PCの配信を待機中... オファーをリクエストします', 'waiting');
 
-  // request-offer を送信
   try {
     await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
       type: 'request-offer',
@@ -181,32 +194,29 @@ async function connect() {
     return log(`❌ Firebase書き込み失敗: ${e.message}`, 'error');
   }
 
-  // ポーリング開始
   pollTimer = setInterval(pollSignals, POLL_MS);
 }
 
-// ── ポーリングループ ──────────────────────────────────────────
+// ── ポーリング ────────────────────────────────────────────────
 async function pollSignals() {
   if (!roomId || !myViewerId) return;
   try {
     const data = await fbGet(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
     if (!data) return;
 
-    // Offerを受信
     if (data.type === 'offer' && !offerHandled) {
       offerHandled = true;
-      log('📨 オファーを受信しました。接続中...', 'waiting');
+      log('📨 オファー受信 → 接続中...', 'waiting');
       await handleOffer(data.sdp);
     }
 
-    // ICE candidatesを受信
-    if (data.ice) {
-      if (!pc) return;
-      const candidates = Array.isArray(data.ice) ? data.ice : Object.values(data.ice);
+    if (data.ice && pc) {
+      const candidates = Array.isArray(data.ice)
+        ? data.ice
+        : Object.values(data.ice);
       for (const c of candidates) {
         await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
       }
-      // 処理済みICEを削除
       await fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}/ice`);
     }
   } catch (e) {
@@ -214,10 +224,11 @@ async function pollSignals() {
   }
 }
 
-// ── Offer処理 ────────────────────────────────────────────────
+// ── Offer 処理 ────────────────────────────────────────────────
 async function handleOffer(offerSdp) {
   pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
+  // ICEをまとめてbroadcasterへ送信
   const iceBatch = [];
   let iceTimer = null;
   pc.onicecandidate = ({ candidate }) => {
@@ -232,12 +243,47 @@ async function handleOffer(offerSdp) {
     }, 150);
   };
 
+  // ─────────────────────────────────────────────────────────
+  // 音声再生：WebRTC streamを<audio>に直接セット
+  // MediaStreamDestinationを経由しないことでモバイルの再生問題を回避
+  // ─────────────────────────────────────────────────────────
   pc.ontrack = (e) => {
-    setupAudio(e.streams[0]);
-    log('🎵 受信・再生中！', 'ok');
-    document.getElementById('btnDisconnect').disabled = false;
-    clearInterval(pollTimer); // offer/ICE受け取り完了でポーリング停止
-    pollTimer = null;
+    const stream = e.streams[0];
+
+    // ① <audio>に直接セットして再生（最も互換性が高い）
+    audioEl.srcObject = stream;
+    audioEl.volume = parseFloat(document.getElementById('volume').value);
+    audioEl.play()
+      .then(() => {
+        log('🎵 受信・再生中！', 'ok');
+        document.getElementById('btnDisconnect').disabled = false;
+        clearInterval(pollTimer);
+        pollTimer = null;
+      })
+      .catch((err) => {
+        // autoplay policy に引っかかった場合のフォールバック
+        log('▶️ タップして再生を開始してください', 'waiting');
+        document.getElementById('btnDisconnect').disabled = false;
+        clearInterval(pollTimer);
+        pollTimer = null;
+        // 次のタップで再生
+        document.body.addEventListener('click', () => {
+          audioEl.play().catch(() => {});
+        }, { once: true });
+      });
+
+    // ② ビジュアライザー用AudioContext（出力には繋がない）
+    //    AudioContextはユーザー操作後に作ることで suspended を回避
+    try {
+      audioCtx     = new AudioContext();
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 64;
+      audioCtx.createMediaStreamSource(stream).connect(analyserNode);
+      // analyserNode は destination に繋がない → 音声出力に影響しない
+      audioCtx.resume().then(() => startVisualizer());
+    } catch (err) {
+      console.warn('Visualizer setup failed (non-critical):', err);
+    }
   };
 
   pc.onconnectionstatechange = () => {
@@ -256,34 +302,18 @@ async function handleOffer(offerSdp) {
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  // Answerを送信
   await fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
     type: 'answer',
     sdp: { type: answer.type, sdp: answer.sdp }
   });
 }
 
-// ── Audio setup ───────────────────────────────────────────────
-function setupAudio(stream) {
-  audioCtx     = new AudioContext();
-  const src    = audioCtx.createMediaStreamSource(stream);
-  gainNode     = audioCtx.createGain();
-  gainNode.gain.value = parseFloat(document.getElementById('volume').value);
-  analyserNode = audioCtx.createAnalyser();
-  analyserNode.fftSize = 64;
-  const dest   = audioCtx.createMediaStreamDestination();
-  src.connect(gainNode);
-  gainNode.connect(analyserNode);
-  gainNode.connect(dest);
-  document.getElementById('audioEl').srcObject = dest.stream;
-  document.getElementById('audioEl').play().catch(() => {});
-  startVisualizer();
-}
-
+// ── 切断 ─────────────────────────────────────────────────────
 function disconnect() {
   clearInterval(pollTimer); pollTimer = null;
   if (pc)       { pc.close(); pc = null; }
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  audioEl.srcObject = null;
   if (roomId && myViewerId) {
     fbDelete(`rooms/${roomId}/signals/toBC/${myViewerId}`);
     fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
@@ -295,11 +325,13 @@ function disconnect() {
   log('切断しました');
 }
 
+// ── 音量（<audio>.volumeで制御、0.0〜1.0）────────────────────
 function setVolume(val) {
-  if (gainNode) gainNode.gain.value = parseFloat(val);
+  audioEl.volume = parseFloat(val);
   document.getElementById('volLabel').textContent = Math.round(val * 100) + '%';
 }
 
+// ── ビジュアライザー ──────────────────────────────────────────
 function startVisualizer() {
   const bars = viz.querySelectorAll('.bar');
   const data = new Uint8Array(analyserNode.frequencyBinCount);
