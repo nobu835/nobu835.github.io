@@ -37,7 +37,7 @@ input, select {
   font-size: 0.95rem;
   margin-bottom: 14px;
 }
-.row { display: flex; gap: 10px; margin-bottom: 0; }
+.row { display: flex; gap: 10px; }
 .row > * { flex: 1; }
 button {
   width: 100%;
@@ -85,6 +85,13 @@ code { background:#0a1f3d; padding:2px 7px; border-radius:4px; font-size:0.82rem
   user-select: none;
 }
 .config-section[open] summary { margin-bottom: 12px; }
+.hint {
+  font-size: 0.76rem;
+  color: #78909c;
+  margin-top: -10px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
 </style>
 </head>
 <body>
@@ -95,13 +102,15 @@ code { background:#0a1f3d; padding:2px 7px; border-radius:4px; font-size:0.82rem
   <details class="config-section" id="configDetails" open>
     <summary>⚙️ Firebase 設定（初回のみ）</summary>
     <label>Firebase Database URL</label>
-    <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
-    <label>Firebase API Key</label>
-    <input type="text" id="fbApiKey" placeholder="AIzaSy...">
-    <small style="color:#78909c;font-size:0.78rem;display:block;margin-top:-8px;margin-bottom:12px;">
-      ※ 設定はブラウザのlocalStorageに保存されます
-    </small>
-    <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.85rem;">保存</button>
+    <input type="text" id="fbUrl"
+           placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
+    <p class="hint">
+      ※ API Key は不要です。Database URL のみで動作します。<br>
+      ※ 設定は localStorage に保存されます。
+    </p>
+    <button class="btn-primary"
+            onclick="saveConfig()"
+            style="width:auto;padding:8px 20px;font-size:0.85rem;">保存</button>
   </details>
 
   <label>ルームID（スマホと共有する任意の文字列）</label>
@@ -118,42 +127,44 @@ code { background:#0a1f3d; padding:2px 7px; border-radius:4px; font-size:0.82rem
     <button id="btnStop"  class="btn-danger"  onclick="stopBroadcast()" disabled>⏹ 停止</button>
   </div>
 
-  <div id="statusBox" class="status">Firebase設定を入力し「保存」後、配信を開始してください。</div>
+  <div id="statusBox" class="status">Firebase Database URL を入力して「保存」後、配信を開始してください。</div>
   <div id="vuMeter"><div id="vuBar"></div></div>
 </div>
 
 <script>
-// ── Firebase REST helper ──────────────────────────────────────
-let FB_URL = '', FB_KEY = '';
+// ── Firebase REST helper（認証なし・パブリックルール前提）───────────
+let FB_URL = '';
 
-function fbPath(path) {
-  return `${FB_URL}/${path}.json?auth=${FB_KEY}`;
+// パスを組み立てる。auth パラメータは使わない
+function endpoint(path) {
+  return `${FB_URL}/${path}.json`;
 }
 
 async function fbPut(path, data) {
-  await fetch(fbPath(path), {
+  const res = await fetch(endpoint(path), {
     method: 'PUT',
     body: JSON.stringify(data),
     headers: { 'Content-Type': 'application/json' }
   });
+  if (!res.ok) throw new Error(`Firebase PUT failed: ${res.status} ${await res.text()}`);
 }
 
 async function fbPatch(path, data) {
-  await fetch(fbPath(path), {
+  const res = await fetch(endpoint(path), {
     method: 'PATCH',
     body: JSON.stringify(data),
     headers: { 'Content-Type': 'application/json' }
   });
+  if (!res.ok) throw new Error(`Firebase PATCH failed: ${res.status} ${await res.text()}`);
 }
 
 async function fbDelete(path) {
-  await fetch(fbPath(path), { method: 'DELETE' });
+  await fetch(endpoint(path), { method: 'DELETE' });
 }
 
-// Server-Sent Events listener for Firebase
+// Server-Sent Events でリアルタイム購読
 function fbListen(path, callback) {
-  const url = `${FB_URL}/${path}.json?auth=${FB_KEY}`;
-  const es = new EventSource(url);
+  const es = new EventSource(endpoint(path));
   es.addEventListener('put', (e) => {
     const { data } = JSON.parse(e.data);
     if (data !== null) callback(data);
@@ -162,40 +173,40 @@ function fbListen(path, callback) {
     const { data } = JSON.parse(e.data);
     if (data !== null) callback(data);
   });
+  es.onerror = (e) => {
+    console.warn('EventSource error', e);
+  };
   return es;
 }
 
-// ── Config ───────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────
 function saveConfig() {
-  FB_URL = document.getElementById('fbUrl').value.trim().replace(/\/$/, '');
-  FB_KEY = document.getElementById('fbApiKey').value.trim();
-  if (!FB_URL || !FB_KEY) return log('⚠️ URLとAPI Keyを両方入力してください', 'error');
+  const url = document.getElementById('fbUrl').value.trim().replace(/\/$/, '');
+  if (!url.startsWith('https://')) {
+    return log('⚠️ https:// から始まる Database URL を入力してください', 'error');
+  }
+  FB_URL = url;
   localStorage.setItem('fb_url', FB_URL);
-  localStorage.setItem('fb_key', FB_KEY);
   log('✅ Firebase設定を保存しました。配信を開始できます。', 'ok');
   document.getElementById('configDetails').removeAttribute('open');
 }
 
 function loadConfig() {
   FB_URL = localStorage.getItem('fb_url') || '';
-  FB_KEY = localStorage.getItem('fb_key') || '';
-  if (FB_URL) document.getElementById('fbUrl').value = FB_URL;
-  if (FB_KEY) document.getElementById('fbApiKey').value = FB_KEY;
-  if (FB_URL && FB_KEY) {
+  if (FB_URL) {
+    document.getElementById('fbUrl').value = FB_URL;
     log('✅ Firebase設定を読み込みました。配信を開始できます。', 'ok');
     document.getElementById('configDetails').removeAttribute('open');
   }
 }
 
-// ── State ────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────
 let localStream = null;
-let peerConns   = new Map();  // viewerId -> RTCPeerConnection
-let esMap       = new Map();  // viewerId -> EventSource
-let roomId      = '';
+let peerConns   = new Map();   // viewerId -> RTCPeerConnection
 let esViewers   = null;
-let animFrame   = null, audioCtx = null, analyser = null;
-
-const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
+let roomId      = '';
+let animFrame   = null, audioCtx = null;
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 function log(msg, type = '') {
   const b = document.getElementById('statusBox');
@@ -203,15 +214,15 @@ function log(msg, type = '') {
   b.innerHTML = msg;
 }
 
-// ── Main flow ─────────────────────────────────────────────────
+// ── 配信開始 ──────────────────────────────────────────────────
 async function startBroadcast() {
-  if (!FB_URL || !FB_KEY) return log('⚠️ 先にFirebase設定を保存してください', 'error');
+  if (!FB_URL) return log('⚠️ 先にFirebase Database URLを保存してください', 'error');
   roomId = document.getElementById('roomId').value.trim();
   if (!roomId) return log('⚠️ ルームIDを入力してください', 'error');
 
   document.getElementById('btnStart').disabled = true;
 
-  // Capture audio
+  // オーディオキャプチャ
   try {
     const src = document.getElementById('sourceType').value;
     if (src === 'mic') {
@@ -224,7 +235,7 @@ async function startBroadcast() {
       const aTrack = display.getAudioTracks()[0];
       if (!aTrack) {
         display.getTracks().forEach(t => t.stop());
-        throw new Error('デスクトップ音声が取得できません。ダイアログで「システムの音声を共有」を有効にしてください。');
+        throw new Error('デスクトップ音声を取得できません。ダイアログで「システムの音声を共有」を有効にしてください。');
       }
       display.getVideoTracks().forEach(t => t.stop());
       localStream = new MediaStream([aTrack]);
@@ -234,55 +245,63 @@ async function startBroadcast() {
     return log('⚠️ ' + e.message, 'error');
   }
 
-  // Initialize room in Firebase
-  await fbPut(`rooms/${roomId}`, {
-    broadcaster: { online: true, ts: Date.now() },
-    viewers: null,
-    signals: null
-  });
+  // Firebaseのルームを初期化
+  try {
+    await fbPut(`rooms/${roomId}`, {
+      broadcaster: { online: true, ts: Date.now() },
+      signals: null
+    });
+  } catch (e) {
+    localStream.getTracks().forEach(t => t.stop());
+    document.getElementById('btnStart').disabled = false;
+    return log(`❌ Firebase書き込み失敗: ${e.message}<br>Realtime Databaseのルール設定を確認してください。`, 'error');
+  }
 
-  // Listen for viewer signals (answer + ICE)
+  // スマホからのシグナルを受信
   esViewers = fbListen(`rooms/${roomId}/signals/toBC`, (data) => {
     Object.entries(data).forEach(([vid, payload]) => {
       if (!payload) return;
       if (payload.type === 'request-offer') {
         handleRequestOffer(vid);
       } else if (payload.type === 'answer' && peerConns.has(vid)) {
-        peerConns.get(vid).setRemoteDescription(new RTCSessionDescription(payload.sdp))
-          .then(() => log(`✅ 接続確立 (${vid.slice(0,8)}...)`, 'ok'));
+        peerConns.get(vid)
+          .setRemoteDescription(new RTCSessionDescription(payload.sdp))
+          .then(() => log(`✅ P2P接続確立 (viewer: ${vid.slice(0,8)}...)`, 'ok'));
       } else if (payload.type === 'ice' && peerConns.has(vid)) {
-        peerConns.get(vid).addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(() => {});
+        const candidates = Array.isArray(payload.candidate)
+          ? payload.candidate
+          : Object.values(payload.candidate);
+        candidates.forEach(c =>
+          peerConns.get(vid).addIceCandidate(new RTCIceCandidate(c)).catch(() => {})
+        );
       }
     });
   });
 
   startVuMeter();
   document.getElementById('btnStop').disabled = false;
-  log(`✅ 配信準備完了！<br>ルームID: <code>${roomId}</code><br>スマホで receiver.html を開き同じルームIDを入力してください。`, 'ok');
+  log(`✅ 配信準備完了！<br>
+      ルームID: <code>${roomId}</code><br>
+      スマホで receiver.html を開き同じルームIDを入力してください。`, 'ok');
 }
 
 async function handleRequestOffer(viewerId) {
-  // Clean up old connection if any
-  if (peerConns.has(viewerId)) {
-    peerConns.get(viewerId).close();
-  }
+  if (peerConns.has(viewerId)) peerConns.get(viewerId).close();
 
-  const pc = new RTCPeerConnection({ iceServers: ICE });
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   peerConns.set(viewerId, pc);
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  // Batch ICE candidates to reduce Firebase writes
   const iceBatch = [];
   let iceTimer = null;
-
   pc.onicecandidate = ({ candidate }) => {
     if (!candidate) return;
     iceBatch.push(candidate.toJSON());
     clearTimeout(iceTimer);
-    iceTimer = setTimeout(async () => {
-      await fbPatch(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
+    iceTimer = setTimeout(() => {
+      fbPatch(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
         ice: iceBatch.splice(0)
-      });
+      }).catch(console.error);
     }, 100);
   };
 
@@ -306,8 +325,6 @@ function stopBroadcast() {
   peerConns.forEach(pc => pc.close());
   peerConns.clear();
   if (esViewers) { esViewers.close(); esViewers = null; }
-  esMap.forEach(es => es.close());
-  esMap.clear();
   if (roomId) fbDelete(`rooms/${roomId}`);
   stopVuMeter();
   document.getElementById('btnStart').disabled = false;
@@ -317,20 +334,17 @@ function stopBroadcast() {
 
 function startVuMeter() {
   audioCtx = new AudioContext();
-  const src = audioCtx.createMediaStreamSource(localStream);
-  analyser = audioCtx.createAnalyser();
+  const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 256;
-  src.connect(analyser);
+  audioCtx.createMediaStreamSource(localStream).connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
-  function draw() {
+  (function draw() {
     analyser.getByteFrequencyData(data);
     const avg = data.reduce((a, b) => a + b, 0) / data.length;
     document.getElementById('vuBar').style.width = Math.min(avg * 2, 100) + '%';
     animFrame = requestAnimationFrame(draw);
-  }
-  draw();
+  })();
 }
-
 function stopVuMeter() {
   if (animFrame) cancelAnimationFrame(animFrame);
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
