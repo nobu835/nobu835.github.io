@@ -2,206 +2,162 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>🎙️ Broadcaster (安定版)</title>
+<title>🎙️ Broadcaster (Debug Mode)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0;
-  min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.card { background: #16213e; border-radius: 16px; padding: 24px; width: 100%; max-width: 500px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-h1 { font-size: 1.5rem; margin-bottom: 4px; color: #4fc3f7; }
-label { display: block; font-size: 0.82rem; color: #90a4ae; margin-bottom: 5px; }
-input, select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #37474f; background: #0f3460; color: #e0e0e0; margin-bottom: 14px; }
-button { width: 100%; padding: 12px; border-radius: 10px; border: none; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
-.btn-primary { background: #4fc3f7; color: #0d1b2a; }
-.btn-danger { background: #ef5350; color: #fff; }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
-.status { margin-top: 18px; padding: 12px; border-radius: 8px; font-size: 0.875rem; background: #0f3460; border-left: 4px solid #4fc3f7; }
-.status.ok { border-left-color: #66bb6a; }
-.log-box { margin-top:12px; background:#050a1a; border:1px solid #1e3a5f; border-radius:8px; padding:8px; font-family:monospace; font-size:0.75rem; color:#90caf9; max-height:160px; overflow-y:auto; line-height:1.4; }
-.config-section { background:#0f2040; border:1px solid #1e3a5f; border-radius:10px; padding:16px; margin-bottom:16px; }
+body { font-family: monospace; background: #111; color: #ccc; padding: 10px; font-size: 14px; }
+.container { max-width: 600px; margin: 0 auto; }
+h1 { color: #4fc3f7; font-size: 1.2rem; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
+input, select { width: 100%; padding: 10px; margin: 5px 0 10px; background: #222; border: 1px solid #444; color: #fff; }
+button { width: 100%; padding: 12px; margin-bottom: 5px; cursor: pointer; font-weight: bold; }
+.btn-start { background: #0277bd; color: #fff; border: none; }
+.btn-stop { background: #c62828; color: #fff; border: none; }
+button:disabled { opacity: 0.3; }
+#logBox { background: #000; border: 1px solid #333; height: 300px; overflow-y: scroll; padding: 5px; font-size: 0.75rem; white-space: pre-wrap; margin-top: 10px; }
+.log-time { color: #888; margin-right: 5px; }
+.log-ice-rem { color: #66bb6a; }
+.log-ice-loc { color: #4fc3f7; }
+.log-err { color: #ef5350; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>🎙️ Broadcaster <small>Stable</small></h1>
+<div class="container">
+  <h1>🎙️ Broadcaster <small>[DEBUG]</small></h1>
+  
+  <label>Firebase URL</label>
+  <input type="text" id="fbUrl">
+  
+  <label>Room ID</label>
+  <input type="text" id="roomId" placeholder="room01">
 
-  <details class="config-section" id="configDetails" open>
-    <summary style="color:#4fc3f7;font-weight:bold;cursor:pointer">⚙️ Firebase 設定</summary>
-    <div style="margin-top:10px;">
-      <label>Firebase Database URL</label>
-      <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT.firebaseio.com">
-      <button class="btn-primary" onclick="saveConfig()" style="font-size:0.8rem;padding:8px;">保存して閉じる</button>
-    </div>
-  </details>
-
-  <label>ルームID</label>
-  <input type="text" id="roomId" placeholder="例: room01">
-  <label>ソース</label>
+  <label>Source</label>
   <select id="sourceType">
-    <option value="display">🖥️ 画面共有 (音声を共有ON)</option>
-    <option value="mic">🎤 マイク</option>
+    <option value="display">Display Audio (画面共有)</option>
+    <option value="mic">Microphone</option>
   </select>
-  <div style="display:flex;gap:10px">
-    <button id="btnStart" class="btn-primary" onclick="startBroadcast()">📡 開始</button>
-    <button id="btnStop"  class="btn-danger"  onclick="stopBroadcast()" disabled>⏹ 停止</button>
-  </div>
-  <div id="statusBox" class="status">設定保存後、開始してください。</div>
-  <div class="log-box" id="logBox"></div>
+  
+  <button class="btn-start" id="btnStart" onclick="start()">Start Broadcast</button>
+  <button class="btn-stop" id="btnStop" onclick="stop()" disabled>Stop</button>
+
+  <div id="logBox"></div>
 </div>
 
 <script>
-let FB_URL = '';
-const ep = p => `${FB_URL}/${p}.json`;
-async function fbGet(p){const r=await fetch(ep(p));return r.ok?r.json():null;}
-async function fbPut(p,d){await fetch(ep(p),{method:'PUT',body:JSON.stringify(d)});}
-async function fbPatch(p,d){await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)});}
-async function fbDelete(p){await fetch(ep(p),{method:'DELETE'});}
+let FB_URL = localStorage.getItem('fb_url') || '';
+if(FB_URL) document.getElementById('fbUrl').value = FB_URL;
 
-function log(m,t=''){const b=document.getElementById('statusBox');b.className='status '+t;b.innerText=m;}
-function dlog(m){const b=document.getElementById('logBox');b.innerHTML+=`<div>[${new Date().toTimeString().slice(3,8)}] ${m}</div>`;b.scrollTop=b.scrollHeight;}
-function saveConfig(){
-  const url=document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
-  if(!url.startsWith('https')) return log('URL不正','error');
-  FB_URL=url; localStorage.setItem('fb_url',FB_URL);
-  document.getElementById('configDetails').removeAttribute('open');
-  log('保存完了');
+const logBox = document.getElementById('logBox');
+function log(msg, type='') {
+  const t = new Date().toTimeString().slice(0,8);
+  const colorClass = type ? `class="${type}"` : '';
+  logBox.innerHTML += `<div ${colorClass}><span class="log-time">[${t}]</span>${msg}</div>`;
+  logBox.scrollTop = logBox.scrollHeight;
+  console.log(msg);
 }
-function loadConfig(){
-  FB_URL=localStorage.getItem('fb_url')||'';
-  if(FB_URL){document.getElementById('fbUrl').value=FB_URL;document.getElementById('configDetails').removeAttribute('open');}
-}
+
+// --- Firebase ---
+const ep = p => `${FB_URL}/${p}.json`;
+async function fbPut(p,d) { await fetch(ep(p), {method:'PUT', body:JSON.stringify(d)}); }
+async function fbGet(p) { const r = await fetch(ep(p)); return r.ok ? r.json() : null; }
+async function fbDelete(p) { await fetch(ep(p), {method:'DELETE'}); }
 
 // --- WebRTC ---
-let localStream=null, peerConns=new Map(); // Map<viewerId, {pc, queue}>
-let pollTimer=null, roomId='';
-const ICE_SERVERS=[{urls:'stun:stun.l.google.com:19302'}];
+let localStream = null, peerConns = new Map(), pollTimer = null;
+let roomId = '';
 
-function setSdpStereo(sdp) {
-  return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
-    if (params.includes('stereo=1')) return match;
-    return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=510000;useinbandfec=1`;
-  });
-}
+async function start() {
+  FB_URL = document.getElementById('fbUrl').value.replace(/\/$/, '');
+  roomId = document.getElementById('roomId').value.trim();
+  if(!FB_URL || !roomId) return log('URLとRoomIDを入力してください', 'log-err');
+  localStorage.setItem('fb_url', FB_URL);
 
-async function startBroadcast() {
-  if(!FB_URL) return log('URL未設定','error');
-  roomId=document.getElementById('roomId').value.trim();
-  if(!roomId) return log('ルームID未入力','error');
-  document.getElementById('btnStart').disabled=true;
+  document.getElementById('btnStart').disabled = true;
 
   try {
-    const src = document.getElementById('sourceType').value;
-    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:2 };
-    
-    if(src === 'mic') {
-      localStream = await navigator.mediaDevices.getUserMedia({audio:constraints, video:false});
+    const type = document.getElementById('sourceType').value;
+    if(type === 'mic') {
+      localStream = await navigator.mediaDevices.getUserMedia({audio:true});
     } else {
-      localStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:constraints});
-      localStream.getVideoTracks().forEach(t => t.stop()); // 音声のみ
+      localStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
     }
-  } catch(e) { 
-    document.getElementById('btnStart').disabled=false; 
-    return log('デバイスエラー: '+e.message,'error'); 
+    log(`🎤 Stream取得成功: ${localStream.getAudioTracks().length} tracks`);
+  } catch(e) {
+    document.getElementById('btnStart').disabled = false;
+    return log('❌ Stream取得失敗: ' + e.message, 'log-err');
   }
 
-  await fbPut(`rooms/${roomId}`, { broadcaster:{online:true}, signals:{} });
-  pollTimer = setInterval(pollSignals, 800);
-  
-  document.getElementById('btnStop').disabled=false;
-  log(`📡 配信中 ID: ${roomId}`, 'ok');
+  await fbPut(`rooms/${roomId}`, {broadcaster:{online:true}});
+  pollTimer = setInterval(pollSignals, 1000);
+  document.getElementById('btnStop').disabled = false;
+  log('*** 配信待機中 ***');
 }
 
 async function pollSignals() {
-  if(!roomId) return;
-  try {
-    const signals = await fbGet(`rooms/${roomId}/signals/toBC`);
-    if(!signals) return;
+  const signals = await fbGet(`rooms/${roomId}/signals/toBC`);
+  if(!signals) return;
 
-    for(const [vid, data] of Object.entries(signals)) {
-      if(!data) continue;
-      
-      // 新規参加
-      if(data.type === 'request-offer') {
-        dlog(`New Viewer: ${vid}`);
-        await handleRequestOffer(vid);
-        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
-      }
-      
-      // Answer受信
-      if(data.type === 'answer' && peerConns.has(vid)) {
-        const {pc, queue} = peerConns.get(vid);
-        if(pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          dlog(`Answer Set: ${vid}`);
-          // ★ここで溜まっていたICEを処理
-          if(queue.length > 0) {
-            dlog(`Queue消化 (${queue.length})`);
-            for(const c of queue) await pc.addIceCandidate(c).catch(()=>{});
-            queue.length = 0;
-          }
-        }
-        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
-      }
-      
-      // ICE受信
-      if(data.type === 'ice' && peerConns.has(vid)) {
-        const {pc, queue} = peerConns.get(vid);
-        const c = new RTCIceCandidate(data.candidate);
-        if(pc.remoteDescription) {
-          await pc.addIceCandidate(c).catch(()=>{});
-        } else {
-          queue.push(c); // まだAnswer来てないなら溜める
-          dlog(`ICE Queue: ${vid}`);
-        }
-        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
-      }
+  for(const [vid, data] of Object.entries(signals)) {
+    if(data.type === 'request-offer') {
+      log(`📩 Request受信 from ${vid}`);
+      await handleRequest(vid);
+      await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
     }
-  } catch(e) { console.warn(e); }
+    if(data.type === 'answer' && peerConns.has(vid)) {
+      const pc = peerConns.get(vid);
+      if(pc.signalingState === 'have-local-offer') {
+        log(`📩 Answer受信 from ${vid}`);
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      }
+      await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
+    }
+    if(data.type === 'ice' && peerConns.has(vid)) {
+      const pc = peerConns.get(vid);
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      // 相手のIPをログ出力
+      log(`📨 [REMOTE ICE] from ${vid}: ${data.candidate.candidate.split(' ').slice(4,8).join(' ')}`, 'log-ice-rem');
+      await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
+    }
+  }
 }
 
-async function handleRequestOffer(vid) {
-  if(peerConns.has(vid)) peerConns.get(vid).pc.close();
+async function handleRequest(vid) {
+  if(peerConns.has(vid)) peerConns.get(vid).close();
   
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  peerConns.set(vid, { pc: pc, queue: [] });
+  const pc = new RTCPeerConnection({ iceServers: [{urls:'stun:stun.l.google.com:19302'}] });
+  peerConns.set(vid, pc);
 
   localStream.getAudioTracks().forEach(t => pc.addTrack(t, localStream));
 
   pc.onicecandidate = e => {
     if(e.candidate) {
-      fbPatch(`rooms/${roomId}/signals/toViewer/${vid}`, {ice: e.candidate.toJSON()}).catch(()=>{});
+      log(`📤 [MY ICE] for ${vid}: ${e.candidate.candidate.split(' ').slice(4,8).join(' ')}`, 'log-ice-loc');
+      fbPut(`rooms/${roomId}/signals/toViewer/${vid}/ice`, e.candidate.toJSON());
     }
   };
 
   pc.onconnectionstatechange = () => {
-    if(pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      dlog(`Viewer Disconnected: ${vid}`);
-      pc.close();
-      peerConns.delete(vid);
-    }
+    log(`🔄 State[${vid}]: ${pc.connectionState}`);
+    if(pc.connectionState === 'failed') log(`❌ 接続失敗[${vid}]`, 'log-err');
   };
 
   const offer = await pc.createOffer();
-  offer.sdp = setSdpStereo(offer.sdp);
   await pc.setLocalDescription(offer);
   
   await fbPut(`rooms/${roomId}/signals/toViewer/${vid}`, {
     type: 'offer', sdp: {type:offer.type, sdp:offer.sdp}
   });
+  log(`📤 Offer送信 to ${vid}`);
 }
 
-function stopBroadcast() {
+function stop() {
   clearInterval(pollTimer);
   if(localStream) localStream.getTracks().forEach(t=>t.stop());
-  peerConns.forEach(v=>v.pc.close()); peerConns.clear();
-  if(roomId) fbDelete(`rooms/${roomId}`);
-  
-  document.getElementById('btnStart').disabled=false;
-  document.getElementById('btnStop').disabled=true;
-  log('停止しました');
+  peerConns.forEach(pc=>pc.close());
+  peerConns.clear();
+  log('*** 停止 ***');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
 }
-
-loadConfig();
 </script>
 </body>
 </html>
