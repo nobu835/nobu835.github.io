@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎙️ Audio Broadcaster (PC)</title>
+<title>🎙️ Audio Broadcaster (高音質版)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0;
@@ -22,13 +22,11 @@ button { width: 100%; padding: 12px; border-radius: 10px; border: none; font-siz
 .btn-primary { background: #4fc3f7; color: #0d1b2a; }
 .btn-primary:hover:not(:disabled) { background: #81d4fa; }
 .btn-danger { background: #ef5350; color: #fff; }
-.btn-danger:hover:not(:disabled) { background: #e53935; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status { margin-top: 18px; padding: 12px 16px; border-radius: 8px; font-size: 0.875rem;
   background: #0f3460; border-left: 4px solid #4fc3f7; line-height: 1.7; word-break: break-all; }
 .status.error { border-left-color: #ef5350; }
 .status.ok    { border-left-color: #66bb6a; }
-.status.warning { border-left-color: #ffca28; }
 #vuMeter { width:100%; height:8px; background:#37474f; border-radius:4px; margin-top:14px; overflow:hidden; }
 #vuBar { height:100%; background:linear-gradient(90deg,#66bb6a,#ffca28,#ef5350); width:0%; transition:width 0.05s; }
 .log-box { margin-top:12px; background:#050a1a; border:1px solid #1e3a5f; border-radius:8px;
@@ -36,218 +34,230 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   max-height:160px; overflow-y:auto; line-height:1.6; }
 .config-section { background:#0f2040; border:1px solid #1e3a5f; border-radius:10px; padding:16px; margin-bottom:16px; }
 .config-section summary { cursor:pointer; font-size:0.85rem; color:#4fc3f7; font-weight:600; user-select:none; }
-.config-section[open] summary { margin-bottom:12px; }
-.hint { font-size:0.76rem; color:#78909c; margin-top:-10px; margin-bottom:12px; line-height:1.5; }
-code { background:#0a1f3d; padding:2px 7px; border-radius:4px; font-size:0.82rem; color:#80cbc4; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🎙️ Audio Broadcaster</h1>
-  <p class="subtitle">PCのオーディオをスマホへリアルタイム配信</p>
+  <h1>🎙️ Audio Broadcaster <small style="font-size:0.7em">HQ</small></h1>
+  <p class="subtitle">PCのオーディオをスマホへリアルタイム配信 (高音質設定)</p>
 
   <details class="config-section" id="configDetails" open>
-    <summary>⚙️ Firebase 設定（初回のみ）</summary>
-    <label>Firebase Database URL</label>
-    <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
-    <p class="hint">※ API Key 不要。Database URL のみ。設定は localStorage に保存されます。</p>
-    <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.85rem;">保存</button>
+    <summary>⚙️ Firebase 設定</summary>
+    <div style="margin-top:10px;">
+      <label>Firebase Database URL</label>
+      <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT.firebaseio.com">
+      <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.85rem;">保存して閉じる</button>
+    </div>
   </details>
 
   <label>ルームID</label>
-  <input type="text" id="roomId" placeholder="例: room-abc123">
+  <input type="text" id="roomId" placeholder="例: room01">
   <label>オーディオソース</label>
   <select id="sourceType">
-    <option value="mic">🎤 マイク入力</option>
-    <option value="display">🖥️ デスクトップ音声（画面キャプチャ）</option>
+    <option value="display">🖥️ デスクトップ音声 (推奨:共有時に「音声を共有」をチェック)</option>
+    <option value="mic">🎤 マイク入力 (高音質モード)</option>
   </select>
   <div class="row">
     <button id="btnStart" class="btn-primary" onclick="startBroadcast()">📡 配信開始</button>
     <button id="btnStop"  class="btn-danger"  onclick="stopBroadcast()" disabled>⏹ 停止</button>
   </div>
-  <div id="statusBox" class="status">Firebase Database URL を入力して「保存」後、配信を開始してください。</div>
+  <div id="statusBox" class="status">設定保存後、配信を開始してください。</div>
   <div id="vuMeter"><div id="vuBar"></div></div>
   <div class="log-box" id="logBox"></div>
 </div>
 
 <script>
+// --- Utils & Firebase (REST) ---
 let FB_URL = '';
 const ep = p => `${FB_URL}/${p}.json`;
-async function fbGet(p)      { const r=await fetch(ep(p)); if(!r.ok)throw new Error(`GET ${r.status}`); return r.json(); }
-async function fbPut(p,d)    { const r=await fetch(ep(p),{method:'PUT',body:JSON.stringify(d),headers:{'Content-Type':'application/json'}}); if(!r.ok)throw new Error(`PUT ${r.status}: ${await r.text()}`); }
-async function fbPatch(p,d)  { const r=await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d),headers:{'Content-Type':'application/json'}}); if(!r.ok)throw new Error(`PATCH ${r.status}: ${await r.text()}`); }
+async function fbGet(p)      { const r=await fetch(ep(p)); if(!r.ok)return null; return r.json(); }
+async function fbPut(p,d)    { await fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}); }
+async function fbPatch(p,d)  { await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)}); }
 async function fbDelete(p)   { await fetch(ep(p),{method:'DELETE'}); }
 
 function saveConfig() {
   const url = document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
-  if(!url.startsWith('https://')) return log('⚠️ https://から始まるURLを入力してください','error');
+  if(!url.startsWith('https://')) return log('URLは https:// で始めてください','error');
   FB_URL=url; localStorage.setItem('fb_url',FB_URL);
-  log('✅ 設定を保存しました。','ok');
   document.getElementById('configDetails').removeAttribute('open');
+  log('✅ 設定保存完了。','ok');
 }
 function loadConfig() {
   FB_URL=localStorage.getItem('fb_url')||'';
-  if(FB_URL){ document.getElementById('fbUrl').value=FB_URL; log('✅ 設定を読み込みました。','ok'); document.getElementById('configDetails').removeAttribute('open'); }
+  if(FB_URL){ document.getElementById('fbUrl').value=FB_URL; document.getElementById('configDetails').removeAttribute('open'); }
 }
 function log(msg,type='') { const b=document.getElementById('statusBox'); b.className='status '+type; b.innerHTML=msg; }
-const logBox=document.getElementById('logBox');
-function dlog(msg) { const t=new Date().toTimeString().slice(0,8); logBox.innerHTML+=`<div>[${t}] ${msg}</div>`; logBox.scrollTop=logBox.scrollHeight; console.log('[BC]',msg); }
+function dlog(msg) { const b=document.getElementById('logBox'); b.innerHTML+=`<div>[${new Date().toTimeString().slice(0,8)}] ${msg}</div>`; b.scrollTop=b.scrollHeight; }
 
-let localStream=null, peerConns=new Map(), processedViewers=new Set();
-let pollTimer=null, animFrame=null, audioCtx=null, analyserForVU=null;
+// --- WebRTC Logic ---
+let localStream=null, peerConns=new Map();
+let pollTimer=null, animFrame=null, audioCtx=null, analyser=null;
 let roomId='';
-const POLL_MS=1500;
 const ICE_SERVERS=[{urls:'stun:stun.l.google.com:19302'}];
 
+// SDP加工：ステレオ・高ビットレート強制 (OPUSコーデック設定)
+function setSdpStereo(sdp) {
+  return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
+    // 既に弄られていればスキップ
+    if (params.includes('stereo=1')) return match;
+    // Opusのパラメータにステレオと高ビットレート(510kbps)を追加
+    return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=510000;useinbandfec=1`;
+  });
+}
+
 async function startBroadcast() {
-  if(!FB_URL) return log('⚠️ Firebase Database URLを保存してください','error');
+  if(!FB_URL) return log('Firebase URLを設定してください','error');
   roomId=document.getElementById('roomId').value.trim();
-  if(!roomId) return log('⚠️ ルームIDを入力してください','error');
+  if(!roomId) return log('ルームIDを入力してください','error');
   document.getElementById('btnStart').disabled=true;
 
   try {
-    const src=document.getElementById('sourceType').value;
-    if(src==='mic') {
-      localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    const srcType = document.getElementById('sourceType').value;
+    // 【重要】エコーキャンセル等を切らないと音楽がノイズと判定されて消える
+    const audioConstraints = {
+      echoCancellation: false,
+      autoGainControl: false,
+      noiseSuppression: false,
+      channelCount: 2 // ステレオ要求
+    };
+
+    if(srcType === 'mic') {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
     } else {
-      const disp=await navigator.mediaDevices.getDisplayMedia({video:true,audio:{echoCancellation:false,noiseSuppression:false,sampleRate:44100}});
-      const aTrack=disp.getAudioTracks()[0];
-      if(!aTrack){ disp.getTracks().forEach(t=>t.stop()); throw new Error('デスクトップ音声を取得できません。'); }
-      disp.getVideoTracks().forEach(t=>t.stop());
-      localStream=new MediaStream([aTrack]);
+      // 画面共有時も補正を切る
+      localStream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: true, 
+        audio: audioConstraints
+      });
+      // 映像トラックは即停止して帯域を節約
+      localStream.getVideoTracks().forEach(t => t.stop());
     }
-  } catch(e) { document.getElementById('btnStart').disabled=false; return log('⚠️ '+e.message,'error'); }
+  } catch(e) { 
+    document.getElementById('btnStart').disabled=false; 
+    return log('マイク/画面共有エラー: '+e.message,'error'); 
+  }
 
-  const tracks=localStream.getAudioTracks();
-  dlog(`取得したトラック数: ${tracks.length}`);
-  tracks.forEach(t=>dlog(`  track: ${t.kind} label="${t.label}" enabled=${t.enabled} readyState=${t.readyState}`));
-
-  try {
-    await fbPut(`rooms/${roomId}`,{broadcaster:{online:true,ts:Date.now()},signals:null});
-    dlog('Firebase ルーム初期化完了');
-  } catch(e) { localStream.getTracks().forEach(t=>t.stop()); document.getElementById('btnStart').disabled=false; return log(`❌ Firebase書き込み失敗: ${e.message}`,'error'); }
-
+  // ルーム初期化
+  await fbPut(`rooms/${roomId}`, { broadcaster:{online:true}, signals:{} });
+  
   startVuMeter();
-  startPolling();
+  pollTimer = setInterval(pollSignals, 1000);
+  
   document.getElementById('btnStop').disabled=false;
-  log(`✅ 配信準備完了！<br>ルームID: <code>${roomId}</code>`, 'ok');
-}
-
-function startPolling() {
-  pollTimer=setInterval(pollSignals,POLL_MS);
+  log(`📡 配信中 (High Quality) ID: <code>${roomId}</code>`, 'ok');
 }
 
 async function pollSignals() {
   if(!roomId) return;
   try {
-    const toBC=await fbGet(`rooms/${roomId}/signals/toBC`);
-    if(!toBC) return;
-    for(const [vid,payload] of Object.entries(toBC)){
-      if(!payload) continue;
-      if(payload.type==='request-offer' && !processedViewers.has(vid)){
-        processedViewers.add(vid);
-        dlog(`request-offer 受信 viewer=${vid.slice(0,8)}`);
-        await handleRequestOffer(vid);
+    const signals = await fbGet(`rooms/${roomId}/signals/toBC`);
+    if(!signals) return;
+
+    for(const [viewerId, data] of Object.entries(signals)) {
+      if(!data) continue;
+      
+      // 新規接続要求 (request-offer)
+      if(data.type === 'request-offer') {
+        dlog(`New Viewer: ${viewerId}`);
+        await handleRequestOffer(viewerId);
+        // 処理済みリクエストを削除
+        await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`);
       }
-      if(payload.type==='answer' && peerConns.has(vid)){
-        const pc=peerConns.get(vid);
-        if(pc.signalingState==='have-local-offer'){
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          dlog(`answer 受信・適用完了 viewer=${vid.slice(0,8)}`);
-          await fbPatch(`rooms/${roomId}/signals/toBC/${vid}`,{type:'answer-done'});
+      
+      // Answer受信
+      if(data.type === 'answer' && peerConns.has(viewerId)) {
+        const pc = peerConns.get(viewerId);
+        if(pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          dlog(`Answer Set: ${viewerId}`);
+          await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`);
         }
       }
-      if(payload.type==='ice' && peerConns.has(vid)){
-        const pc=peerConns.get(vid);
-        const cs=Array.isArray(payload.candidate)?payload.candidate:Object.values(payload.candidate||{});
-        for(const c of cs) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
-        dlog(`ICE ${cs.length}件 適用 viewer=${vid.slice(0,8)}`);
-        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}/type`);
+      
+      // ICE Candidate受信
+      if(data.type === 'ice' && peerConns.has(viewerId)) {
+        const pc = peerConns.get(viewerId);
+        if(data.candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(()=>{});
+        }
+        await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`); // 受信したら消す
       }
     }
-  } catch(e){ console.warn('pollSignals:',e.message); }
+  } catch(e) { console.warn(e); }
 }
 
 async function handleRequestOffer(viewerId) {
-  if(peerConns.has(viewerId)) peerConns.get(viewerId).close();
-  const pc=new RTCPeerConnection({iceServers:ICE_SERVERS});
-  peerConns.set(viewerId,pc);
+  // 既存があれば閉じる
+  if(peerConns.has(viewerId)) { peerConns.get(viewerId).close(); }
 
-  localStream.getTracks().forEach(t=>{
-    pc.addTrack(t,localStream);
-    dlog(`addTrack: ${t.kind} enabled=${t.enabled} readyState=${t.readyState}`);
-  });
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  peerConns.set(viewerId, pc);
 
-  const iceBatch=[]; let iceTimer=null;
-  pc.onicecandidate=({candidate})=>{
-    if(!candidate) return;
-    iceBatch.push(candidate.toJSON());
-    clearTimeout(iceTimer);
-    iceTimer=setTimeout(()=>{
-      fbPatch(`rooms/${roomId}/signals/toViewer/${viewerId}`,{ice:iceBatch.splice(0)}).catch(console.warn);
-    },150);
-  };
-  pc.oniceconnectionstatechange=()=>dlog(`ICE[${viewerId.slice(0,6)}] ${pc.iceConnectionState}`);
-  pc.onconnectionstatechange=()=>{
-    dlog(`Conn[${viewerId.slice(0,6)}] ${pc.connectionState}`);
-    if(pc.connectionState==='connected'){
-      log(`🎙️ 配信中 ✓ viewer=${viewerId.slice(0,8)}...`,'ok');
-      // 接続確立後に送信統計を定期ログ
-      startSenderStats(pc, viewerId);
+  // トラック追加
+  localStream.getAudioTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.onicecandidate = e => {
+    if(e.candidate) {
+      fbPatch(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
+        ice: e.candidate.toJSON()
+      }).catch(()=>{});
     }
-    if(pc.connectionState==='failed'){ log('❌ 接続失敗','error'); processedViewers.delete(viewerId); }
   };
 
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  dlog(`offer 作成完了 → Firebase送信`);
-  await fbPut(`rooms/${roomId}/signals/toViewer/${viewerId}`,{type:'offer',sdp:{type:offer.type,sdp:offer.sdp}});
-}
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if(s==='failed' || s==='disconnected') {
+      pc.close();
+      peerConns.delete(viewerId);
+      dlog(`Viewer Disconnected: ${viewerId}`);
+    }
+  };
 
-// ── 送信統計ログ（RTCStatsで実際に送信できているか確認）─────
-function startSenderStats(pc, vid) {
-  let prevBytesSent=0;
-  const statsTimer=setInterval(async()=>{
-    if(!peerConns.has(vid)){ clearInterval(statsTimer); return; }
-    try {
-      const stats=await pc.getStats();
-      stats.forEach(s=>{
-        if(s.type==='outbound-rtp' && s.kind==='audio'){
-          const delta=s.bytesSent - prevBytesSent;
-          prevBytesSent=s.bytesSent;
-          dlog(`📤 送信 bytesSent=${s.bytesSent} (+${delta}B) packets=${s.packetsSent} codec=${s.codecId||'?'}`);
-        }
-      });
-    } catch(e){}
-  },3000);
+  const offer = await pc.createOffer();
+  // 【重要】送信側SDPも書き換えてステレオ・高ビットレートを宣言する
+  offer.sdp = setSdpStereo(offer.sdp);
+  
+  await pc.setLocalDescription(offer);
+  
+  await fbPut(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
+    type: 'offer', sdp: {type:offer.type, sdp:offer.sdp}
+  });
 }
 
 function stopBroadcast() {
-  clearInterval(pollTimer); pollTimer=null;
+  clearInterval(pollTimer);
   if(localStream) localStream.getTracks().forEach(t=>t.stop());
-  peerConns.forEach(p=>p.close()); peerConns.clear(); processedViewers.clear();
+  peerConns.forEach(p=>p.close()); peerConns.clear();
+  
   if(roomId) fbDelete(`rooms/${roomId}`);
+  
   stopVuMeter();
   document.getElementById('btnStart').disabled=false;
   document.getElementById('btnStop').disabled=true;
-  log('⏹ 配信を停止しました');
+  log('⏹ 配信停止');
 }
 
 function startVuMeter() {
-  audioCtx=new AudioContext();
-  analyserForVU=audioCtx.createAnalyser(); analyserForVU.fftSize=256;
-  audioCtx.createMediaStreamSource(localStream).connect(analyserForVU);
-  const data=new Uint8Array(analyserForVU.frequencyBinCount);
-  (function draw(){
-    analyserForVU.getByteFrequencyData(data);
-    const avg=data.reduce((a,b)=>a+b,0)/data.length;
-    document.getElementById('vuBar').style.width=Math.min(avg*2,100)+'%';
-    animFrame=requestAnimationFrame(draw);
-  })();
+  audioCtx = new AudioContext();
+  analyser = audioCtx.createAnalyser();
+  const src = audioCtx.createMediaStreamSource(localStream);
+  src.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  
+  const draw = () => {
+    if(localStream && localStream.active) {
+      animFrame = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(data);
+      const val = data.reduce((a,b)=>a+b,0) / data.length;
+      document.getElementById('vuBar').style.width = Math.min(100, val*2) + '%';
+    }
+  };
+  draw();
 }
-function stopVuMeter(){
+
+function stopVuMeter() {
   if(animFrame) cancelAnimationFrame(animFrame);
-  if(audioCtx){ audioCtx.close(); audioCtx=null; }
+  if(audioCtx) audioCtx.close();
   document.getElementById('vuBar').style.width='0%';
 }
 

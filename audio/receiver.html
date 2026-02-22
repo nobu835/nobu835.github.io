@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📱 Audio Receiver (スマホ)</title>
+<title>📱 Audio Receiver (高音質版)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', sans-serif; background: #1a2a1a; color: #e0e0e0;
@@ -20,7 +20,6 @@ button { width: 100%; padding: 13px; border-radius: 10px; border: none; font-siz
 .btn-primary { background: #66bb6a; color: #0a1f0a; }
 .btn-primary:hover:not(:disabled) { background: #81c784; }
 .btn-danger { background: #e53935; color: #fff; margin-top: 10px; }
-.btn-test   { background: #ffca28; color: #1a1a00; margin-top: 10px; font-size:0.9rem; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status { margin-top: 18px; padding: 14px 16px; border-radius: 10px; font-size: 0.88rem;
   background: #0a1f0a; border-left: 4px solid #66bb6a; line-height: 1.7; min-height: 56px; }
@@ -29,342 +28,265 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status.waiting { border-left-color: #ffca28; }
 .log-box { margin-top:12px; background:#050f05; border:1px solid #1b5e20; border-radius:8px;
   padding:10px 12px; font-family:monospace; font-size:0.72rem; color:#a5d6a7;
-  max-height:220px; overflow-y:auto; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
-.visualizer { margin-top:14px; display:flex; gap:3px; align-items:flex-end; height:40px; }
-.bar { flex:1; background:#66bb6a; border-radius:3px 3px 0 0; min-height:4px; transition:height 0.05s; }
+  max-height:150px; overflow-y:auto; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
+.visualizer { margin-top:14px; display:flex; gap:3px; align-items:flex-end; height:60px; }
+.bar { flex:1; background:#66bb6a; border-radius:3px 3px 0 0; min-height:4px; transition:height 0.1s; }
 .vol-control { margin-top:14px; display:flex; align-items:center; gap:10px; font-size:0.82rem; color:#a5d6a7; }
 input[type=range] { flex:1; margin-bottom:0; accent-color:#66bb6a; cursor:pointer; }
 .config-section { background:#0a1f0a; border:1px solid #1b5e20; border-radius:10px; padding:14px; margin-bottom:16px; }
 .config-section summary { cursor:pointer; font-size:0.83rem; color:#66bb6a; font-weight:600; user-select:none; }
-.config-section[open] summary { margin-bottom:10px; }
-.hint { font-size:0.76rem; color:#4a7c59; margin-top:-10px; margin-bottom:10px; line-height:1.5; }
+.hint { font-size:0.76rem; color:#4a7c59; margin-top:5px; margin-bottom:10px; line-height:1.5; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>📱 Audio Receiver</h1>
-  <p class="subtitle">PCのオーディオをリアルタイム受信</p>
+  <h1>📱 Audio Receiver <small style="font-size:0.7em">HQ</small></h1>
+  <p class="subtitle">PCのオーディオをリアルタイム受信 (高音質設定)</p>
 
   <details class="config-section" id="configDetails" open>
-    <summary>⚙️ Firebase 設定（初回のみ）</summary>
-    <label>Firebase Database URL</label>
-    <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT-default-rtdb.firebaseio.com">
-    <p class="hint">※ API Key 不要。Database URL のみ。設定は localStorage に保存されます。</p>
-    <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.83rem;">保存</button>
+    <summary>⚙️ Firebase 設定</summary>
+    <div style="margin-top:10px;">
+      <label>Firebase Database URL</label>
+      <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT.firebaseio.com">
+      <p class="hint">設定は自動保存されます。</p>
+      <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.83rem;">保存して閉じる</button>
+    </div>
   </details>
 
   <label>ルームID（PCと同じIDを入力）</label>
-  <input type="text" id="roomId" placeholder="例: room-abc123">
+  <input type="text" id="roomId" placeholder="例: room01">
   <button id="btnConnect" class="btn-primary" onclick="connect()">🔗 接続して受信開始</button>
   <button id="btnDisconnect" class="btn-danger" onclick="disconnect()" disabled>切断</button>
-  <button class="btn-test" onclick="playTestBeep()">🔔 効果音テスト</button>
 
-  <div id="statusBox" class="status">Firebase Database URLを保存後、ルームIDを入力して接続してください。</div>
-  <div class="log-box" id="logBox"></div>
-
+  <div id="statusBox" class="status">設定保存後、ルームIDを入力して接続してください。</div>
+  
+  <!-- ビジュアライザー -->
   <div class="visualizer" id="visualizer"></div>
+  
   <div class="vol-control">
     🔊 音量
-    <input type="range" id="volume" min="0" max="1" step="0.02" value="1" oninput="setVolume(this.value)">
+    <input type="range" id="volume" min="0" max="1.5" step="0.05" value="1" oninput="setVolume(this.value)">
     <span id="volLabel">100%</span>
   </div>
+
+  <div class="log-box" id="logBox"></div>
+  
+  <!-- 音声再生用エレメント -->
   <audio id="audioEl" autoplay playsinline></audio>
 </div>
 
 <script>
+// --- Utils & Firebase (REST) ---
 let FB_URL='';
 const ep=p=>`${FB_URL}/${p}.json`;
-async function fbGet(p)     { const r=await fetch(ep(p)); if(!r.ok)throw new Error(`GET ${r.status}`); return r.json(); }
-async function fbPut(p,d)   { const r=await fetch(ep(p),{method:'PUT',body:JSON.stringify(d),headers:{'Content-Type':'application/json'}}); if(!r.ok)throw new Error(`PUT ${r.status}: ${await r.text()}`); }
-async function fbPatch(p,d) { const r=await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d),headers:{'Content-Type':'application/json'}}); if(!r.ok)throw new Error(`PATCH ${r.status}: ${await r.text()}`); }
+async function fbGet(p)     { const r=await fetch(ep(p)); if(!r.ok)return null; return r.json(); }
+async function fbPut(p,d)   { await fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}); }
+async function fbPatch(p,d) { await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)}); }
 async function fbDelete(p)  { await fetch(ep(p),{method:'DELETE'}); }
+
+function log(msg,type=''){ 
+  const b=document.getElementById('statusBox'); 
+  b.className='status '+type; b.innerHTML=msg; 
+  if(type==='error') dlog('ERROR: '+msg);
+}
+function dlog(msg){
+  const box=document.getElementById('logBox');
+  const t=new Date().toTimeString().slice(0,8);
+  box.innerHTML+=`<div>[${t}] ${msg}</div>`;
+  box.scrollTop=box.scrollHeight;
+}
 
 function saveConfig() {
   const url=document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
-  if(!url.startsWith('https://')) return log('⚠️ https://から始まるURLを入力してください','error');
-  FB_URL=url; localStorage.setItem('fb_url',FB_URL); log('✅ 設定を保存しました。','ok');
+  if(!url.startsWith('https://')) return log('URLは https:// で始めてください','error');
+  FB_URL=url; localStorage.setItem('fb_url',FB_URL);
   document.getElementById('configDetails').removeAttribute('open');
+  log('✅ 設定保存完了。接続してください。','ok');
 }
 function loadConfig() {
   FB_URL=localStorage.getItem('fb_url')||'';
-  if(FB_URL){ document.getElementById('fbUrl').value=FB_URL; log('✅ 設定を読み込みました。','ok'); document.getElementById('configDetails').removeAttribute('open'); }
+  if(FB_URL){ document.getElementById('fbUrl').value=FB_URL; document.getElementById('configDetails').removeAttribute('open'); }
 }
 
-const logBox=document.getElementById('logBox');
-let logCount=0;
-function dlog(msg){
-  const t=new Date().toTimeString().slice(0,8);
-  logBox.innerHTML+=`<div>[${t}] ${msg}</div>`;
-  logBox.scrollTop=logBox.scrollHeight;
-  console.log('[RX]',msg);
-  // 古いログが増えすぎないよう上限管理
-  if(++logCount>200){ logBox.innerHTML=logBox.innerHTML.split('<div>').slice(-100).join('<div>'); }
-}
-function log(msg,type=''){ const b=document.getElementById('statusBox'); b.className='status '+type; b.innerHTML=msg; }
+// --- WebRTC Logic ---
+let pc=null, audioCtx=null, analyser=null;
+let pollTimer=null, animFrame=null;
+let myViewerId=null, roomId='', offerHandled=false;
+const audioEl=document.getElementById('audioEl');
 
-function playTestBeep(freq=440,dur=0.4){
-  const ctx=new AudioContext();
-  ctx.resume().then(()=>{
-    const osc=ctx.createOscillator(),g=ctx.createGain();
-    osc.connect(g); g.connect(ctx.destination);
-    osc.frequency.value=freq;
-    g.gain.setValueAtTime(0.3,ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+dur);
-    osc.start(); osc.stop(ctx.currentTime+dur);
-    osc.onended=()=>ctx.close();
+// ビジュアライザー初期化
+const vizContainer=document.getElementById('visualizer');
+const VIZ_BARS=15;
+for(let i=0;i<VIZ_BARS;i++){
+  const b=document.createElement('div'); b.className='bar'; vizContainer.appendChild(b);
+}
+
+// SDP加工：ステレオ・高ビットレート強制
+function setSdpStereo(sdp) {
+  return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
+    if (params.includes('stereo=1')) return match;
+    return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=510000;useinbandfec=1`;
   });
 }
 
-const viz=document.getElementById('visualizer');
-for(let i=0;i<20;i++){const b=document.createElement('div');b.className='bar';b.style.height='4px';viz.appendChild(b);}
-
-let pc=null, audioCtx=null, analyserNode=null;
-let pollTimer=null, animFrame=null, statsTimer=null;
-let myViewerId=null, roomId='', offerHandled=false;
-const POLL_MS=1500;
-const ICE_SERVERS=[{urls:'stun:stun.l.google.com:19302'}];
-const audioEl=document.getElementById('audioEl');
-
 async function connect() {
-  if(!FB_URL) return log('⚠️ Firebase URLを保存してください','error');
+  if(!FB_URL) return log('Firebase URLを設定してください','error');
   roomId=document.getElementById('roomId').value.trim();
-  if(!roomId) return log('⚠️ ルームIDを入力してください','error');
+  if(!roomId) return log('ルームIDを入力してください','error');
+
+  // AudioContextの再開（モバイル対策：ユーザー操作内で実行）
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') await audioCtx.resume();
+
   document.getElementById('btnConnect').disabled=true;
-
-  audioCtx=new AudioContext();
-  await audioCtx.resume();
-  dlog(`AudioContext state=${audioCtx.state} sampleRate=${audioCtx.sampleRate}`);
-
-  playTestBeep(880,0.15);
-
-  myViewerId=Date.now().toString(36)+Math.random().toString(36).slice(2);
-  offerHandled=false;
-  dlog(`viewerId=${myViewerId}`);
-  log('⏳ PCの配信を待機中...','waiting');
+  document.getElementById('btnDisconnect').disabled=false;
+  
+  myViewerId = 'v-' + Math.random().toString(36).substr(2,9);
+  offerHandled = false;
+  
+  log('⏳ PCからの配信を待機中...','waiting');
+  dlog(`ID: ${myViewerId} 接続開始`);
 
   try {
-    await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`,{type:'request-offer',ts:Date.now()});
-    dlog('request-offer 送信OK');
-  } catch(e){ document.getElementById('btnConnect').disabled=false; return log(`❌ Firebase書き込み失敗: ${e.message}`,'error'); }
-
-  pollTimer=setInterval(pollSignals,POLL_MS);
+    // 参加表明
+    await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`, {type:'request-offer', ts:Date.now()});
+    pollTimer = setInterval(pollSignals, 1000);
+  } catch(e) {
+    disconnect();
+    log('接続エラー: '+e.message, 'error');
+  }
 }
 
 async function pollSignals() {
-  if(!roomId||!myViewerId) return;
+  if(!roomId || !myViewerId) return;
   try {
-    const data=await fbGet(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
+    const data = await fbGet(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
     if(!data) return;
-    if(data.type==='offer'&&!offerHandled){
-      offerHandled=true;
-      dlog('Offer受信 → handleOffer');
-      log('📨 オファー受信 → 接続中...','waiting');
+
+    if(data.type === 'offer' && !offerHandled) {
+      offerHandled = true;
+      log('📨 オファー受信。接続処理中...','waiting');
       await handleOffer(data.sdp);
     }
-    if(data.ice&&pc){
-      const cs=Array.isArray(data.ice)?data.ice:Object.values(data.ice);
-      for(const c of cs) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(()=>{});
-      dlog(`ICE ${cs.length}件 追加`);
+    
+    if(data.ice && pc) {
+      const candidates = Array.isArray(data.ice) ? data.ice : [data.ice];
+      for(const c of candidates) {
+        if(c && c.candidate) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(e=>dlog('ICE Error: '+e));
+      }
+      // 処理済みICEを削除して再読込防止
       await fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}/ice`);
     }
-  } catch(e){ console.warn('poll:',e.message); }
+  } catch(e) { console.warn(e); }
 }
 
-async function handleOffer(offerSdp) {
-  pc=new RTCPeerConnection({iceServers:ICE_SERVERS});
+async function handleOffer(remoteSdp) {
+  pc = new RTCPeerConnection({
+    iceServers: [{urls:'stun:stun.l.google.com:19302'}]
+  });
 
-  const iceBatch=[]; let iceTimer=null;
-  pc.onicecandidate=({candidate})=>{
-    if(!candidate) return;
-    iceBatch.push(candidate.toJSON());
-    clearTimeout(iceTimer);
-    iceTimer=setTimeout(()=>{
-      fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`,{type:'ice',candidate:iceBatch.splice(0)}).catch(console.warn);
-    },150);
-  };
-
-  pc.oniceconnectionstatechange=()=>dlog(`ICE: ${pc.iceConnectionState}`);
-  pc.onconnectionstatechange=()=>{
-    dlog(`Conn: ${pc.connectionState}`);
-    if(pc.connectionState==='connected'){
-      log('✅ 接続確立 - オーディオ受信中','ok');
-      startReceiverStats();
-    }
-    if(pc.connectionState==='failed') log('❌ 接続失敗','error');
-    if(pc.connectionState==='disconnected'){ log('⚠️ 切断','warning'); stopVisualizer(); }
-  };
-
-  pc.ontrack=(e)=>{
-    const track=e.track;
-    dlog(`★ ontrack kind=${track.kind} readyState=${track.readyState} enabled=${track.enabled} muted=${track.muted}`);
-
-    // ── muted=true の場合: unmute イベントを待って再生 ──────
-    // WebRTC仕様上、ICE接続確立前にontrackが発火するとmuted=trueになる
-    // unmuteイベントが発火した時点でメディアデータが実際に流れ始める
-    track.onunmute=()=>{
-      dlog(`★ track.onunmute 発火! readyState=${track.readyState} → 再生開始`);
-      startPlayback(e.streams[0]||new MediaStream([track]));
-    };
-    track.onmute=()=>dlog(`★ track.onmute 発火`);
-    track.onended=()=>dlog(`★ track.onended 発火`);
-
-    // すでに unmuted なら即座に再生
-    if(!track.muted){
-      dlog('track は既に unmuted → 即再生');
-      startPlayback(e.streams[0]||new MediaStream([track]));
-    } else {
-      dlog('track は muted → unmute イベント待機中...');
-      log('⏳ メディア到着待ち (muted)...','waiting');
+  pc.onicecandidate = event => {
+    if(event.candidate) {
+      fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
+        type: 'ice', candidate: event.candidate.toJSON()
+      }).catch(()=>{});
     }
   };
 
-  await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
-  dlog('setRemoteDescription OK');
-  const answer=await pc.createAnswer();
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    dlog(`Connection: ${s}`);
+    if(s === 'connected') log('✅ 受信中 (高音質ステレオ)', 'ok');
+    if(s === 'disconnected' || s === 'failed') {
+      log('⚠️ 接続が切れました', 'error');
+      stopVisualizer();
+    }
+  };
+
+  pc.ontrack = async (event) => {
+    dlog('🎵 トラック受信開始');
+    const stream = event.streams[0] || new MediaStream([event.track]);
+    
+    // Audio要素で再生 (遅延最小化)
+    audioEl.srcObject = stream;
+    try {
+      await audioEl.play();
+    } catch(e) {
+      log('⚠️ 画面をタップして再生を開始してください', 'waiting');
+      document.body.addEventListener('click', () => audioEl.play(), {once:true});
+    }
+    
+    // WebAudio APIで可視化のみ行う (Audio要素の出力とは別経路で解析)
+    setupVisualizer(stream);
+  };
+
+  // SDPに高音質設定を適用してセット
+  const fixedOffer = { type: 'offer', sdp: setSdpStereo(remoteSdp.sdp) };
+  await pc.setRemoteDescription(new RTCSessionDescription(fixedOffer));
+  
+  const answer = await pc.createAnswer();
+  // Answer側もSDP加工
+  answer.sdp = setSdpStereo(answer.sdp);
   await pc.setLocalDescription(answer);
-  dlog('setLocalDescription(answer) OK');
-  await fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`,{type:'answer',sdp:{type:answer.type,sdp:answer.sdp}});
-  dlog('answer 送信OK');
-}
 
-// ── 実際の再生開始（unmute後 or 即時）───────────────────────
-function startPlayback(stream) {
-  dlog(`startPlayback: stream.active=${stream.active} tracks=${stream.getTracks().map(t=>t.kind+'/'+t.readyState+'/muted='+t.muted).join(',')}`);
-
-  audioEl.srcObject=stream;
-  audioEl.play()
-    .then(()=>{
-      dlog('✅ audioEl.play() 成功');
-      log('🎵 受信・再生中！','ok');
-      playTestBeep(1320,0.2);
-      document.getElementById('btnDisconnect').disabled=false;
-      clearInterval(pollTimer); pollTimer=null;
-      startRawDataMonitor(stream);
-    })
-    .catch(err=>{
-      dlog(`❌ audioEl.play() 失敗: ${err.name}: ${err.message}`);
-      log('▶️ 画面をタップして再生してください','waiting');
-      document.getElementById('btnDisconnect').disabled=false;
-      clearInterval(pollTimer); pollTimer=null;
-      document.body.addEventListener('click',()=>{
-        audioEl.play()
-          .then(()=>{ dlog('tap→play成功'); startRawDataMonitor(stream); })
-          .catch(e=>dlog('tap→play失敗: '+e));
-      },{once:true});
-    });
-}
-
-// ── 生データ監視: AudioWorkletProcessor でサンプルを直接取得 ──
-// AudioWorkletが使えない場合はScriptProcessorNodeにフォールバック
-async function startRawDataMonitor(stream) {
-  dlog('--- 生データ監視 開始 ---');
-  try {
-    const src=audioCtx.createMediaStreamSource(stream);
-
-    // --- ScriptProcessorNode で生PCMサンプルを確認 ---
-    const bufSize=4096;
-    const spn=audioCtx.createScriptProcessor(bufSize,1,1);
-    let callCount=0;
-    let lastLogTime=0;
-
-    spn.onaudioprocess=(ev)=>{
-      const inputData=ev.inputBuffer.getChannelData(0); // Float32Array
-      callCount++;
-      const now=Date.now();
-
-      // 3秒ごとにログ
-      if(now-lastLogTime < 3000) return;
-      lastLogTime=now;
-
-      // RMS計算
-      let sumSq=0;
-      for(let i=0;i<inputData.length;i++) sumSq+=inputData[i]*inputData[i];
-      const rms=Math.sqrt(sumSq/inputData.length);
-
-      // 先頭16サンプルを16進数で表示（毎回変化すれば実データ受信中）
-      const hex=Array.from(inputData.slice(0,16))
-        .map(v=>{
-          // float32 を 16bit PCM相当の整数に変換して表示
-          const i16=Math.round(v*32767);
-          return (i16>=0?'+':'')+(i16.toString(16).padStart(4,'0'));
-        }).join(' ');
-
-      // ピーク値
-      let peak=0;
-      for(let i=0;i<inputData.length;i++) if(Math.abs(inputData[i])>peak) peak=Math.abs(inputData[i]);
-
-      dlog(`📊 [${callCount}回] RMS=${rms.toFixed(4)} peak=${peak.toFixed(4)}`);
-      dlog(`   先頭16smp(hex): ${hex}`);
-      dlog(`   ${rms>0.001 ? '✅ 音声データあり' : '❌ 無音 (全サンプルが0に近い)'}`);
-
-      // ビジュアライザー更新
-      updateVisualizer(inputData);
-    };
-
-    // srcをspnに繋ぐ（出力はdestinationに繋がない→audioElの再生に干渉しない）
-    src.connect(spn);
-    spn.connect(audioCtx.destination); // ScriptProcessorはdestinationに繋がないと動かないブラウザがある
-    // ただし音量0で接続して再生への干渉を避ける
-    const silentGain=audioCtx.createGain();
-    silentGain.gain.value=0;
-    spn.connect(silentGain);
-    silentGain.connect(audioCtx.destination);
-
-    dlog('ScriptProcessorNode 設定完了 (bufSize='+bufSize+')');
-  } catch(err){
-    dlog('生データ監視 失敗: '+err);
-  }
-}
-
-function updateVisualizer(float32Data){
-  const bars=viz.querySelectorAll('.bar');
-  const step=Math.floor(float32Data.length/bars.length);
-  bars.forEach((b,i)=>{
-    const v=Math.abs(float32Data[i*step]||0);
-    b.style.height=(v*36*4+4)+'px';
+  await fbPatch(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
+    type: 'answer', sdp: {type:answer.type, sdp:answer.sdp}
   });
 }
 
-// ── RTCStats ────────────────────────────────────────────────
-function startReceiverStats(){
-  let prevBytes=0, prevPkts=0;
-  statsTimer=setInterval(async()=>{
-    if(!pc) return;
-    try {
-      const stats=await pc.getStats();
-      stats.forEach(s=>{
-        if(s.type==='inbound-rtp'&&s.kind==='audio'){
-          const db=s.bytesReceived-prevBytes;
-          const dp=s.packetsReceived-prevPkts;
-          prevBytes=s.bytesReceived; prevPkts=s.packetsReceived;
-          dlog(`📥 RTP bytes=${s.bytesReceived}(+${db}) pkts=${s.packetsReceived}(+${dp}) lost=${s.packetsLost} jitter=${(s.jitter*1000).toFixed(1)}ms`);
-        }
-      });
-    } catch(e){}
-  },3000);
+function setupVisualizer(stream) {
+  if(!audioCtx) return;
+  
+  // 以前の接続があれば切る
+  if(analyser) { try{analyser.disconnect();}catch(e){} }
+  
+  // Audio要素とは別に解析用に入力を分岐させる
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 64; // 軽さを優先
+  source.connect(analyser);
+  // analyser.connect(audioCtx.destination); // 重要: ここでは出力に繋がない（二重再生防止）
+
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  const bars = document.querySelectorAll('.bar');
+
+  const draw = () => {
+    if(pc && pc.connectionState === 'connected') {
+      animFrame = requestAnimationFrame(draw);
+    }
+    analyser.getByteFrequencyData(dataArray);
+    
+    // 低域〜中域を中心に表示
+    for(let i=0; i < VIZ_BARS; i++) {
+      const val = dataArray[i + 2] || 0; // 超低域(0-1)は無視
+      const h = Math.max(4, val / 255 * 50); 
+      if(bars[i]) bars[i].style.height = h + 'px';
+    }
+  };
+  draw();
 }
 
-function disconnect(){
-  clearInterval(pollTimer); clearInterval(statsTimer);
-  pollTimer=null; statsTimer=null;
-  if(pc){ pc.close(); pc=null; }
-  if(audioCtx){ audioCtx.close(); audioCtx=null; }
-  audioEl.srcObject=null;
-  if(roomId&&myViewerId){
-    fbDelete(`rooms/${roomId}/signals/toBC/${myViewerId}`);
-    fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
-  }
-  stopVisualizer(); offerHandled=false;
+function stopVisualizer() {
+  if(animFrame) cancelAnimationFrame(animFrame);
+  document.querySelectorAll('.bar').forEach(b => b.style.height='4px');
+}
+
+function setVolume(val) {
+  audioEl.volume = Math.min(1, val); // audio要素用
+  // 100%超えの増幅が必要ならGainNodeが必要だが、今回は簡易実装
+  document.getElementById('volLabel').textContent = Math.round(val*100) + '%';
+}
+
+function disconnect() {
+  clearInterval(pollTimer);
+  if(pc) pc.close();
+  if(roomId && myViewerId) fbDelete(`rooms/${roomId}/signals/toBC/${myViewerId}`);
+  pc = null;
+  audioEl.srcObject = null;
+  stopVisualizer();
   document.getElementById('btnConnect').disabled=false;
   document.getElementById('btnDisconnect').disabled=true;
   log('切断しました');
-}
-
-function setVolume(val){ audioEl.volume=parseFloat(val); document.getElementById('volLabel').textContent=Math.round(val*100)+'%'; }
-
-function stopVisualizer(){
-  if(animFrame){cancelAnimationFrame(animFrame);animFrame=null;}
-  viz.querySelectorAll('.bar').forEach(b=>b.style.height='4px');
 }
 
 loadConfig();
