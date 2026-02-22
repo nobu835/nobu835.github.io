@@ -3,142 +3,177 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📱 Receiver (Final Debug)</title>
+<title>📱 Receiver (Debug First)</title>
 <style>
-body { background: #000; color: #ccc; font-family: monospace; padding: 10px; }
-input { background: #222; color: #fff; border: 1px solid #444; width: 100%; padding: 8px; margin-bottom: 5px; }
-button { width: 100%; padding: 10px; font-weight: bold; margin-bottom: 10px; cursor: pointer; }
-.btn-con { background: #2e7d32; color: #fff; }
-.btn-dis { background: #c62828; color: #fff; }
-#viz { height: 50px; display: flex; align-items: flex-end; gap: 2px; margin-bottom: 10px; border: 1px solid #333; }
-.bar { flex: 1; background: #66bb6a; min-height: 2px; }
-#log { height: 200px; overflow-y: scroll; border: 1px solid #333; font-size: 10px; white-space: pre-wrap; }
-.rem { color: #4fc3f7; } .loc { color: #a5d6a7; } .err { color: #ef5350; } .ok { color: #66bb6a; }
+  body { font-family: monospace; background: #001a00; color: #eee; margin: 10px; display: flex; flex-direction: column; height: 95vh; }
+  .control-panel { background: #003300; padding: 10px; margin-bottom: 10px; border: 1px solid #005500; }
+  button, input { background: #002200; color: #fff; border: 1px solid #00aa00; padding: 8px; margin: 3px; font-family: monospace; }
+  button:hover { background: #004400; cursor: pointer; }
+  textarea { flex-grow: 1; background: #000; color: #0f0; font-family: monospace; font-size: 11px; padding: 10px; border: 1px solid #005500; resize: none; white-space: pre; overflow-wrap: normal; overflow-x: scroll; }
+  audio { width: 100%; margin-top: 10px; background: #000; }
 </style>
 </head>
 <body>
-<h3>📱 Receiver <small>Final</small></h3>
-<div id="viz"></div>
-<input id="fbUrl" placeholder="Firebase URL">
-<input id="roomId" placeholder="Room ID">
-<button onclick="start()" class="btn-con" id="btnStart">Connect</button>
-<button onclick="stop()" class="btn-dis" id="btnStop" disabled>Disconnect</button>
-<div id="log"></div>
-<audio id="au" autoplay playsinline></audio>
+
+<div class="control-panel">
+  <h3>📱 Receiver (Debug Edition)</h3>
+  Firebase: <input type="text" id="fbUrl" placeholder="https://...firebaseio.com" style="width: 250px;"><br>
+  Room: <input type="text" id="roomId" value="room-test1">
+  <button id="btnConnect" onclick="connect()">🔗 Connect</button>
+  <button id="btnDisconnect" onclick="disconnect()" disabled>切断</button>
+  <button onclick="copyLog()">📋 Copy Log</button>
+  <button onclick="$('logArea').value=''">🗑 Clear</button>
+  <br>
+  <!-- UIを隠さず、あえてブラウザの標準コントローラーを出す -->
+  <audio id="audioEl" controls autoplay playsinline></audio>
+</div>
+
+<textarea id="logArea" readonly></textarea>
 
 <script>
 const $ = id => document.getElementById(id);
-const log = (m, c='') => {
-  const t = new Date().toTimeString().split(' ')[0];
-  $('log').innerHTML += `<div class="${c}">[${t}] ${m}</div>`;
-  $('log').scrollTop = $('log').scrollHeight;
-};
+function dlog(msg) {
+  const t = new Date().toISOString().split('T')[1].slice(0,-1);
+  const txt = `[${t}] ${msg}\n`;
+  $('logArea').value += txt;
+  $('logArea').scrollTop = $('logArea').scrollHeight;
+  console.log(`[RX] ${msg}`);
+}
+function copyLog() {
+  const ta = $('logArea');
+  ta.select(); document.execCommand('copy'); dlog('✅ ログをコピーしました');
+}
 
-// Config
 let FB_URL = localStorage.getItem('fb_url') || '';
 if(FB_URL) $('fbUrl').value = FB_URL;
+
 const ep = p => `${FB_URL}/${p}.json`;
 const api = {
-  get: async p => (await fetch(ep(p))).json(),
+  get: async p => { const r = await fetch(ep(p)); return r.json(); },
   put: async (p,d) => fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}),
+  patch: async (p,d) => fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)}),
   del: async p => fetch(ep(p),{method:'DELETE'})
 };
 
-// Global
-let pc, myId, pollT, hbT, ac, an;
-const vizBox = $('viz');
-for(let i=0; i<15; i++) { const b=document.createElement('div'); b.className='bar'; vizBox.appendChild(b); }
+let pc, myId, pollTimer, offerHandled = false;
+const audioEl = $('audioEl');
+const rId = () => $('roomId').value.trim();
 
-async function start() {
+async function connect() {
   FB_URL = $('fbUrl').value.replace(/\/$/,'');
-  const rId = $('roomId').value.trim();
-  if(!FB_URL || !rId) return log('URL/ID missing','err');
   localStorage.setItem('fb_url', FB_URL);
+  if(!FB_URL || !rId()) return dlog('❌ URL/RoomIDが空です');
 
-  $('btnStart').disabled = true; $('btnStop').disabled = false;
-  
-  ac = new (window.AudioContext||window.webkitAudioContext)();
-  await ac.resume();
+  $('btnConnect').disabled = true; $('btnDisconnect').disabled = false;
+  myId = 'v-' + Math.random().toString(36).substr(2, 6);
+  offerHandled = false;
 
-  myId = 'v-'+Math.floor(Math.random()*9999);
-  log(`ID: ${myId} Start`);
+  dlog(`🚀 接続シーケンス開始 ID: ${myId}, Room: ${rId()}`);
 
   try {
-    await api.put(`rooms/${rId}/signals/toBC/${myId}`, {type:'request-offer'});
-    pollT = setInterval(() => poll(rId), 1000);
-    hbT = setInterval(() => api.put(`rooms/${rId}/hb/${myId}`, Date.now()), 2000);
-  } catch(e) { log(e.message,'err'); stop(); }
+    await api.put(`rooms/${rId()}/signals/toBC/${myId}`, { type: 'request-offer', ts: Date.now() });
+    dlog('📤 Firebase: request-offer 送信完了');
+    pollTimer = setInterval(poll, 1500);
+  } catch(e) { dlog(`❌ Connect エラー: ${e.message}`); disconnect(); }
 }
 
-async function poll(rId) {
+async function poll() {
   try {
-    const d = await api.get(`rooms/${rId}/signals/toViewer/${myId}`);
-    if(!d) return;
-    
-    if(d.type === 'offer' && !pc) {
-      log('Offer Recv -> Handle');
-      await handleOffer(d.sdp, rId);
+    const data = await api.get(`rooms/${rId()}/signals/toViewer/${myId}`);
+    if(!data) return;
+
+    if(data.type === 'offer' && !offerHandled) {
+      offerHandled = true;
+      dlog(`📥 Offerを受信 (SDP長: ${data.sdp.sdp.length})`);
+      await handleOffer(data.sdp);
     }
-    if(d.ice && pc && pc.remoteDescription) {
-      await pc.addIceCandidate(new RTCIceCandidate(d.ice));
-      log(`Remote ICE: ${d.ice.candidate.split(' ')[4]}`, 'rem'); // IP表示
-      await api.del(`rooms/${rId}/signals/toViewer/${myId}/ice`);
+    if(data.ice && pc) {
+      const cands = Array.isArray(data.ice) ? data.ice : Object.values(data.ice);
+      dlog(`📥 相手のICE Candidate ${cands.length}件を受信`);
+      for(const c of cands) {
+        await pc.addIceCandidate(new RTCIceCandidate(c)).catch(e => dlog(`⚠️ ICE追加エラー: ${e.message}`));
+        dlog(`🧊 Remote ICE追加: ${c.candidate.split(' ')[4]} (typ ${c.candidate.split(' ')[7]})`);
+      }
+      await api.del(`rooms/${rId()}/signals/toViewer/${myId}/ice`);
     }
-  } catch(e) {}
+  } catch(e) { /* polling network errors */ }
 }
 
-async function handleOffer(sdp, rId) {
-  pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-  
+async function handleOffer(sdp) {
+  pc = new RTCPeerConnection({ iceServers: [{urls: 'stun:stun.l.google.com:19302'}] });
+
+  let iceBatch = []; let iceTimer = null;
   pc.onicecandidate = e => {
     if(e.candidate) {
-      // ★ここで自分のIPを確認
-      log(`Local ICE: ${e.candidate.candidate.split(' ')[4]}`, 'loc'); 
-      api.put(`rooms/${rId}/signals/toBC/${myId}/ice`, e.candidate.toJSON());
+      const ip = e.candidate.candidate.split(' ')[4];
+      const typ = e.candidate.candidate.split(' ')[7];
+      dlog(`🧊 Local ICE生成: ${ip} (typ ${typ})`);
+      iceBatch.push(e.candidate.toJSON());
+      clearTimeout(iceTimer);
+      iceTimer = setTimeout(() => {
+        dlog(`📤 ICE Candidates ${iceBatch.length}件をFirebaseへ送信`);
+        api.patch(`rooms/${rId()}/signals/toBC/${myId}`, { type:'ice', candidate: iceBatch.splice(0) });
+      }, 200);
     }
   };
-  
+
   pc.onconnectionstatechange = () => {
-    log(`State: ${pc.connectionState}`, pc.connectionState==='connected'?'ok':'');
-    if(pc.connectionState==='failed') log('Failed (IP Unreachable)', 'err');
+    dlog(`🔄 接続ステータス: ${pc.connectionState}`);
+    if(pc.connectionState === 'connected') {
+      dlog('✅ P2P接続確立！');
+      startStats();
+    }
   };
 
   pc.ontrack = e => {
-    log('Track Recv (Audio)', 'ok');
-    $('au').srcObject = e.streams[0];
-    $('au').play().catch(e=>log('Tap Screen!','err'));
-    setupViz(e.streams[0]);
+    const track = e.track;
+    dlog(`🎵 Track受信: kind=${track.kind}, muted=${track.muted}`);
+    
+    audioEl.srcObject = e.streams[0];
+    
+    // mutedが解除された（実際にデータが流れ始めた）時の処理
+    track.onunmute = () => {
+      dlog('▶️ Track unmuted! (データ受信開始)');
+      audioEl.play().then(() => dlog('✅ audio.play() 成功！鳴っているはずです'))
+                    .catch(err => dlog(`⚠️ 自動再生ブロック: ${err.message} (画面の再生ボタンを押してください)`));
+    };
+
+    if(!track.muted) {
+      audioEl.play().then(() => dlog('✅ audio.play() 成功！'))
+                    .catch(err => dlog(`⚠️ 自動再生ブロック: ${err.message}`));
+    }
   };
 
   await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-  const ans = await pc.createAnswer();
-  await pc.setLocalDescription(ans);
-  await api.put(`rooms/${rId}/signals/toBC/${myId}`, {type:'answer', sdp:{type:ans.type, sdp:ans.sdp}});
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  dlog(`📤 Answer作成＆Firebaseへ送信 (SDP長: ${answer.sdp.length})`);
+  await api.patch(`rooms/${rId()}/signals/toBC/${myId}`, { type: 'answer', sdp: { type: answer.type, sdp: answer.sdp } });
 }
 
-function setupViz(stream) {
-  if(!ac) return;
-  an = ac.createAnalyser();
-  an.fftSize = 64;
-  const src = ac.createMediaStreamSource(stream);
-  src.connect(an);
-  const data = new Uint8Array(an.frequencyBinCount);
-  const bars = document.querySelectorAll('.bar');
-  const draw = () => {
-    if(!pc) return;
-    an.getByteFrequencyData(data);
-    bars.forEach((b,i) => b.style.height = (data[i+2]/255*48+2)+'px');
-    requestAnimationFrame(draw);
-  };
-  draw();
+function startStats() {
+  let prevBytes = 0, prevPkts = 0;
+  const t = setInterval(async () => {
+    if(!pc || pc.connectionState !== 'connected') return clearInterval(t);
+    const stats = await pc.getStats();
+    stats.forEach(s => {
+      if(s.type === 'inbound-rtp' && s.kind === 'audio') {
+        const kbps = ((s.bytesReceived - prevBytes) * 8 / 1000 / 3).toFixed(1);
+        const lost = s.packetsLost;
+        prevBytes = s.bytesReceived; prevPkts = s.packetsReceived;
+        dlog(`📊 受信中: ${kbps} kbps | Jitter: ${(s.jitter*1000).toFixed(1)}ms | Lost: ${lost}`);
+      }
+    });
+  }, 3000);
 }
 
-function stop() {
-  clearInterval(pollT); clearInterval(hbT);
-  if(pc) pc.close(); pc=null;
-  $('au').srcObject = null;
-  $('btnStart').disabled = false; $('btnStop').disabled = true;
-  log('Stopped');
+function disconnect() {
+  clearInterval(pollTimer);
+  if(pc) pc.close(); pc = null;
+  audioEl.srcObject = null;
+  $('btnConnect').disabled = false; $('btnDisconnect').disabled = true;
+  dlog('⏹ 切断しました');
 }
 </script>
 </body>
