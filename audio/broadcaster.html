@@ -2,217 +2,159 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>🎙️ Broadcaster (Integrated)</title>
+<title>🎙️ Broadcaster (Final Debug)</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: sans-serif; background: #111; color: #eee; padding: 15px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-.card { background: #222; padding: 20px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
-input, select { width: 100%; padding: 12px; background: #333; border: 1px solid #555; color: #fff; border-radius: 6px; margin-bottom: 15px; font-size: 1rem; }
-button { width: 100%; padding: 14px; border-radius: 8px; border: none; font-size: 1rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
+body { background: #000; color: #ccc; font-family: monospace; padding: 10px; }
+input, select { background: #222; color: #fff; border: 1px solid #444; width: 100%; padding: 8px; margin-bottom: 5px; }
+button { width: 100%; padding: 10px; font-weight: bold; margin-bottom: 10px; cursor: pointer; }
 .btn-start { background: #0277bd; color: #fff; }
-.btn-stop { background: #c62828; color: #fff; opacity: 0.5; pointer-events: none; }
-.btn-stop.active { opacity: 1; pointer-events: auto; }
-.status { padding: 10px; border-radius: 6px; background: #000; margin-bottom: 15px; border-left: 5px solid #555; font-size: 0.9rem; }
-.viz-box { height: 60px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 5px; margin-bottom: 15px; overflow: hidden; }
-.bar { width: 6%; background: #4fc3f7; border-radius: 3px 3px 0 0; min-height: 2px; }
-.log-box { height: 120px; overflow-y: auto; background: #050505; border: 1px solid #333; padding: 8px; font-family: monospace; font-size: 0.75rem; color: #aaa; border-radius: 6px; }
-.log-row { margin-bottom: 4px; border-bottom: 1px solid #222; }
+.btn-stop { background: #c62828; color: #fff; }
+#viz { height: 50px; display: flex; align-items: flex-end; gap: 2px; margin-bottom: 10px; border: 1px solid #333; }
+.bar { flex: 1; background: #4fc3f7; min-height: 2px; }
+#log { height: 200px; overflow-y: scroll; border: 1px solid #333; font-size: 10px; white-space: pre-wrap; }
+.rem { color: #66bb6a; } .loc { color: #4fc3f7; } .err { color: #ef5350; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>🎙️ Broadcaster</h1>
-  <div class="status" id="statusBox">設定を入力して開始してください</div>
-
-  <!-- 入力確認用ビジュアライザー -->
-  <div class="viz-box" id="visualizer"></div>
-
-  <input type="text" id="fbUrl" placeholder="Firebase URL">
-  <input type="text" id="roomId" placeholder="Room ID">
-  <select id="sourceType">
-    <option value="display">🖥️ 画面共有 (音声を共有ON)</option>
-    <option value="mic">🎤 マイク入力</option>
-  </select>
-  
-  <button id="btnStart" class="btn-start" onclick="startBroadcast()">📡 配信開始</button>
-  <button id="btnStop" class="btn-stop" onclick="stopBroadcast()">停止</button>
-
-  <div class="log-box" id="logBox"></div>
-</div>
+<h3>🎙️ Broadcaster <small>Final</small></h3>
+<div id="viz"></div>
+<input id="fbUrl" placeholder="Firebase URL">
+<input id="roomId" placeholder="Room ID">
+<select id="src"><option value="display">Display</option><option value="mic">Mic</option></select>
+<button onclick="start()" class="btn-start" id="btnStart">Start</button>
+<button onclick="stop()" class="btn-stop" id="btnStop" disabled>Stop</button>
+<div id="log"></div>
 
 <script>
 const $ = id => document.getElementById(id);
-const log = (msg) => {
+const log = (m, c='') => {
   const t = new Date().toTimeString().split(' ')[0];
-  $('logBox').innerHTML += `<div class="log-row"><span>[${t}]</span> ${msg}</div>`;
-  $('logBox').scrollTop = $('logBox').scrollHeight;
-  $('statusBox').innerText = msg;
+  $('log').innerHTML += `<div class="${c}">[${t}] ${m}</div>`;
+  $('log').scrollTop = $('log').scrollHeight;
 };
 
-// --- Config ---
+// Config
 let FB_URL = localStorage.getItem('fb_url') || '';
 if(FB_URL) $('fbUrl').value = FB_URL;
-
 const ep = p => `${FB_URL}/${p}.json`;
 const api = {
   get: async p => (await fetch(ep(p))).json(),
   put: async (p,d) => fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}),
-  del: async p => fetch(ep(p),{method:'DELETE'}),
-  patch: async (p,d) => fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)})
+  del: async p => fetch(ep(p),{method:'DELETE'})
 };
 
-// --- Variables ---
-let localStream = null, peerConns = new Map(); // Map<id, {pc, lastSeen}>
-let loops = { poll:null, hb:null, watch:null, viz:null };
-let roomId = null;
-let audioCtx = null, analyser = null;
+// Global
+let stream, pcs=new Map(), pollT, hbT, ac, an;
+const vizBox = $('viz');
+for(let i=0; i<15; i++) { const b=document.createElement('div'); b.className='bar'; vizBox.appendChild(b); }
 
-// Viz Init
-const vizEl = $('visualizer');
-for(let i=0; i<15; i++){ const b=document.createElement('div'); b.className='bar'; vizEl.appendChild(b); }
-
-async function startBroadcast() {
-  FB_URL = $('fbUrl').value.replace(/\/$/, '');
-  roomId = $('roomId').value.trim();
-  if(!FB_URL || !roomId) return log('URLとルームIDが必要です');
+async function start() {
+  FB_URL = $('fbUrl').value.replace(/\/$/,'');
+  const rId = $('roomId').value.trim();
+  if(!FB_URL || !rId) return log('URL/ID missing','err');
   localStorage.setItem('fb_url', FB_URL);
-  
-  $('btnStart').style.display = 'none';
-  $('btnStop').classList.add('active');
 
+  $('btnStart').disabled = true; $('btnStop').disabled = false;
+  
   try {
-    const type = $('sourceType').value;
-    const constraints = { 
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 },
-      video: type === 'display' 
-    };
+    const type = $('src').value;
+    stream = await (type==='mic' ? navigator.mediaDevices.getUserMedia({audio:true}) : navigator.mediaDevices.getDisplayMedia({video:true,audio:true}));
+    if(type!=='mic') stream.getVideoTracks().forEach(t=>t.stop());
+    setupViz(stream);
     
-    if(type === 'mic') localStream = await navigator.mediaDevices.getUserMedia({audio: constraints.audio});
-    else {
-      localStream = await navigator.mediaDevices.getDisplayMedia(constraints);
-      localStream.getVideoTracks().forEach(t=>t.stop()); // 映像は不要
-    }
-    
-    // 入力が生きてるか可視化で確認
-    setupVisualizer(localStream);
-    
-    // 部屋初期化
-    await api.put(`rooms/${roomId}`, { broadcaster:{online:true}, signals:{}, hb:{} });
-    
-    loops.poll = setInterval(polling, 1000);
-    loops.hb = setInterval(() => api.put(`rooms/${roomId}/hb/bc`, Date.now()), 2000);
-    loops.watch = setInterval(checkViewersAlive, 2000);
-    
-    log(`配信中 (ID: ${roomId})`);
-    
-  } catch(e) {
-    log('開始エラー: '+e.message);
-    stopBroadcast();
-  }
+    await api.put(`rooms/${rId}`, {bc:1});
+    pollT = setInterval(() => poll(rId), 1000);
+    hbT = setInterval(() => checkHB(rId), 2000);
+    log(`Started Room: ${rId}`);
+  } catch(e) { log(e.message,'err'); stop(); }
 }
 
-async function polling() {
+async function poll(rId) {
   try {
-    const signals = await api.get(`rooms/${roomId}/signals/toBC`);
-    if(!signals) return;
-
-    for(const [vid, data] of Object.entries(signals)) {
-      if(data.type === 'request-offer') {
-        log(`接続要求: ${vid}`);
-        await handleRequest(vid);
-        await api.del(`rooms/${roomId}/signals/toBC/${vid}`);
+    const sigs = await api.get(`rooms/${rId}/signals/toBC`);
+    if(!sigs) return;
+    for(const [vid, d] of Object.entries(sigs)) {
+      if(d.type==='request-offer') {
+        log(`Req from ${vid}`);
+        await handleReq(vid, rId);
+        await api.del(`rooms/${rId}/signals/toBC/${vid}`);
       }
-      if(data.type === 'answer' && peerConns.has(vid)) {
-        const {pc} = peerConns.get(vid);
-        if(pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          log(`接続確立: ${vid}`);
-        }
-        await api.del(`rooms/${roomId}/signals/toBC/${vid}`);
+      if(d.type==='answer' && pcs.has(vid)) {
+        await pcs.get(vid).pc.setRemoteDescription(d.sdp);
+        log(`Answer Set (${vid})`);
+        await api.del(`rooms/${rId}/signals/toBC/${vid}`);
       }
-      if(data.ice && peerConns.has(vid)) {
-        const {pc} = peerConns.get(vid);
-        await pc.addIceCandidate(new RTCIceCandidate(data.ice));
-        await api.del(`rooms/${roomId}/signals/toBC/${vid}`);
+      if(d.ice && pcs.has(vid)) {
+        await pcs.get(vid).pc.addIceCandidate(new RTCIceCandidate(d));
+        log(`Remote ICE: ${d.candidate.split(' ')[4]} (${vid})`, 'rem');
+        await api.del(`rooms/${rId}/signals/toBC/${vid}`);
       }
     }
   } catch(e) {}
 }
 
-async function handleRequest(vid) {
-  if(peerConns.has(vid)) peerConns.get(vid).pc.close();
-  
+async function handleReq(vid, rId) {
+  if(pcs.has(vid)) pcs.get(vid).pc.close();
   const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-  peerConns.set(vid, { pc, lastSeen: Date.now() });
-
-  localStream.getAudioTracks().forEach(t => pc.addTrack(t, localStream));
-
+  pcs.set(vid, {pc, last:Date.now()});
+  
+  stream.getAudioTracks().forEach(t => pc.addTrack(t, stream));
+  
   pc.onicecandidate = e => {
-    if(e.candidate) api.patch(`rooms/${roomId}/signals/toViewer/${vid}`, {ice:e.candidate.toJSON()});
+    if(e.candidate) {
+      log(`Local ICE: ${e.candidate.candidate.split(' ')[4]}`, 'loc');
+      api.put(`rooms/${rId}/signals/toViewer/${vid}/ice`, e.candidate.toJSON());
+    }
+  };
+  pc.onconnectionstatechange = () => {
+    if(pc.connectionState==='failed' || pc.connectionState==='disconnected') {
+      log(`${vid} Disconnected`, 'err');
+      pc.close(); pcs.delete(vid);
+    }
   };
 
-  const offer = await pc.createOffer();
-  // 送信側でもSDPにステレオフラグを付与
-  offer.sdp = offer.sdp.replace(/a=fmtp:(\d+) (.*)/g, (m,pt,p) => 
-    p.includes('stereo') ? m : `a=fmtp:${pt} ${p};stereo=1;sprop-stereo=1;maxaveragebitrate=510000`
-  );
-  
-  await pc.setLocalDescription(offer);
-  await api.put(`rooms/${roomId}/signals/toViewer/${vid}`, {type:'offer', sdp:{type:offer.type, sdp:offer.sdp}});
+  const off = await pc.createOffer();
+  await pc.setLocalDescription(off);
+  await api.put(`rooms/${rId}/signals/toViewer/${vid}`, {type:'offer', sdp:{type:off.type, sdp:off.sdp}});
 }
 
-// 視聴者の生存確認
-async function checkViewersAlive() {
-  const hbs = await api.get(`rooms/${roomId}/hb/viewer`);
-  if(!hbs) return;
-  
-  const now = Date.now();
-  for(const [vid, info] of peerConns.entries()) {
-    const lastHb = hbs[vid] || 0;
-    // 5秒以上ハートビートがない、またはWebRTCが切断状態なら切る
-    if(now - lastHb > 5000 || info.pc.connectionState === 'failed') {
-      log(`切断検知: ${vid}`);
-      info.pc.close();
-      peerConns.delete(vid);
-      api.del(`rooms/${roomId}/signals/toViewer/${vid}`);
-      api.del(`rooms/${roomId}/hb/viewer/${vid}`);
+async function checkHB(rId) {
+  // ハートビートチェック
+  try {
+    const hbs = await api.get(`rooms/${rId}/hb`);
+    const now = Date.now();
+    for(const [vid, info] of pcs.entries()) {
+      const last = hbs && hbs[vid] ? hbs[vid] : 0;
+      if(now - last > 6000) {
+        log(`${vid} Timeout`, 'err');
+        info.pc.close(); pcs.delete(vid);
+      }
     }
-  }
+  } catch(e){}
 }
 
-function setupVisualizer(stream) {
-  if(loops.viz) cancelAnimationFrame(loops.viz);
-  audioCtx = new AudioContext();
-  analyser = audioCtx.createAnalyser();
-  const src = audioCtx.createMediaStreamSource(stream);
-  src.connect(analyser);
-  
-  const buffer = new Uint8Array(analyser.frequencyBinCount);
+function setupViz(st) {
+  ac = new AudioContext();
+  an = ac.createAnalyser();
+  const src = ac.createMediaStreamSource(st);
+  src.connect(an);
+  const data = new Uint8Array(an.frequencyBinCount);
   const bars = document.querySelectorAll('.bar');
-  
   const draw = () => {
-    analyser.getByteFrequencyData(buffer);
-    bars.forEach((bar, i) => {
-      bar.style.height = Math.max(2, buffer[i+2]/255 * 60) + 'px';
-    });
-    loops.viz = requestAnimationFrame(draw);
+    if(!stream) return;
+    an.getByteFrequencyData(data);
+    bars.forEach((b,i) => b.style.height = (data[i+2]/255*48+2)+'px');
+    requestAnimationFrame(draw);
   };
   draw();
 }
 
-function stopBroadcast() {
-  Object.values(loops).forEach(t => { if(t) typeof t==='number'?clearInterval(t):cancelAnimationFrame(t); });
-  if(localStream) localStream.getTracks().forEach(t=>t.stop());
-  peerConns.forEach(v => v.pc.close());
-  peerConns.clear();
-  
-  if(roomId) api.del(`rooms/${roomId}`);
-  
-  $('btnStart').style.display = 'block';
-  $('btnStop').classList.remove('active');
-  document.querySelectorAll('.bar').forEach(b=>b.style.height='2px');
-  log('配信停止');
+function stop() {
+  clearInterval(pollT); clearInterval(hbT);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  pcs.forEach(v=>v.pc.close()); pcs.clear(); stream=null;
+  $('btnStart').disabled = false; $('btnStop').disabled = true;
+  log('Stopped');
 }
 </script>
 </body>
