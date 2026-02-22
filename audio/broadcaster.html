@@ -2,149 +2,113 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎙️ Audio Broadcaster (高音質版)</title>
+<title>🎙️ Broadcaster (安定版)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0;
   min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.card { background: #16213e; border-radius: 16px; padding: 32px; width: 100%; max-width: 540px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.card { background: #16213e; border-radius: 16px; padding: 24px; width: 100%; max-width: 500px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 h1 { font-size: 1.5rem; margin-bottom: 4px; color: #4fc3f7; }
-.subtitle { color: #90a4ae; font-size: 0.85rem; margin-bottom: 24px; }
 label { display: block; font-size: 0.82rem; color: #90a4ae; margin-bottom: 5px; }
-input, select { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #37474f;
-  background: #0f3460; color: #e0e0e0; font-size: 0.95rem; margin-bottom: 14px; }
-.row { display: flex; gap: 10px; }
-.row > * { flex: 1; }
-button { width: 100%; padding: 12px; border-radius: 10px; border: none; font-size: 0.95rem;
-  font-weight: 600; cursor: pointer; transition: 0.2s; }
+input, select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #37474f; background: #0f3460; color: #e0e0e0; margin-bottom: 14px; }
+button { width: 100%; padding: 12px; border-radius: 10px; border: none; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
 .btn-primary { background: #4fc3f7; color: #0d1b2a; }
-.btn-primary:hover:not(:disabled) { background: #81d4fa; }
 .btn-danger { background: #ef5350; color: #fff; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.status { margin-top: 18px; padding: 12px 16px; border-radius: 8px; font-size: 0.875rem;
-  background: #0f3460; border-left: 4px solid #4fc3f7; line-height: 1.7; word-break: break-all; }
-.status.error { border-left-color: #ef5350; }
-.status.ok    { border-left-color: #66bb6a; }
-#vuMeter { width:100%; height:8px; background:#37474f; border-radius:4px; margin-top:14px; overflow:hidden; }
-#vuBar { height:100%; background:linear-gradient(90deg,#66bb6a,#ffca28,#ef5350); width:0%; transition:width 0.05s; }
-.log-box { margin-top:12px; background:#050a1a; border:1px solid #1e3a5f; border-radius:8px;
-  padding:10px 12px; font-family:monospace; font-size:0.75rem; color:#90caf9;
-  max-height:160px; overflow-y:auto; line-height:1.6; }
+.status { margin-top: 18px; padding: 12px; border-radius: 8px; font-size: 0.875rem; background: #0f3460; border-left: 4px solid #4fc3f7; }
+.status.ok { border-left-color: #66bb6a; }
+.log-box { margin-top:12px; background:#050a1a; border:1px solid #1e3a5f; border-radius:8px; padding:8px; font-family:monospace; font-size:0.75rem; color:#90caf9; max-height:160px; overflow-y:auto; line-height:1.4; }
 .config-section { background:#0f2040; border:1px solid #1e3a5f; border-radius:10px; padding:16px; margin-bottom:16px; }
-.config-section summary { cursor:pointer; font-size:0.85rem; color:#4fc3f7; font-weight:600; user-select:none; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🎙️ Audio Broadcaster <small style="font-size:0.7em">HQ</small></h1>
-  <p class="subtitle">PCのオーディオをスマホへリアルタイム配信 (高音質設定)</p>
+  <h1>🎙️ Broadcaster <small>Stable</small></h1>
 
   <details class="config-section" id="configDetails" open>
-    <summary>⚙️ Firebase 設定</summary>
+    <summary style="color:#4fc3f7;font-weight:bold;cursor:pointer">⚙️ Firebase 設定</summary>
     <div style="margin-top:10px;">
       <label>Firebase Database URL</label>
       <input type="text" id="fbUrl" placeholder="https://YOUR-PROJECT.firebaseio.com">
-      <button class="btn-primary" onclick="saveConfig()" style="width:auto;padding:8px 20px;font-size:0.85rem;">保存して閉じる</button>
+      <button class="btn-primary" onclick="saveConfig()" style="font-size:0.8rem;padding:8px;">保存して閉じる</button>
     </div>
   </details>
 
   <label>ルームID</label>
   <input type="text" id="roomId" placeholder="例: room01">
-  <label>オーディオソース</label>
+  <label>ソース</label>
   <select id="sourceType">
-    <option value="display">🖥️ デスクトップ音声 (推奨:共有時に「音声を共有」をチェック)</option>
-    <option value="mic">🎤 マイク入力 (高音質モード)</option>
+    <option value="display">🖥️ 画面共有 (音声を共有ON)</option>
+    <option value="mic">🎤 マイク</option>
   </select>
-  <div class="row">
-    <button id="btnStart" class="btn-primary" onclick="startBroadcast()">📡 配信開始</button>
+  <div style="display:flex;gap:10px">
+    <button id="btnStart" class="btn-primary" onclick="startBroadcast()">📡 開始</button>
     <button id="btnStop"  class="btn-danger"  onclick="stopBroadcast()" disabled>⏹ 停止</button>
   </div>
-  <div id="statusBox" class="status">設定保存後、配信を開始してください。</div>
-  <div id="vuMeter"><div id="vuBar"></div></div>
+  <div id="statusBox" class="status">設定保存後、開始してください。</div>
   <div class="log-box" id="logBox"></div>
 </div>
 
 <script>
-// --- Utils & Firebase (REST) ---
 let FB_URL = '';
 const ep = p => `${FB_URL}/${p}.json`;
-async function fbGet(p)      { const r=await fetch(ep(p)); if(!r.ok)return null; return r.json(); }
-async function fbPut(p,d)    { await fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}); }
-async function fbPatch(p,d)  { await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)}); }
-async function fbDelete(p)   { await fetch(ep(p),{method:'DELETE'}); }
+async function fbGet(p){const r=await fetch(ep(p));return r.ok?r.json():null;}
+async function fbPut(p,d){await fetch(ep(p),{method:'PUT',body:JSON.stringify(d)});}
+async function fbPatch(p,d){await fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)});}
+async function fbDelete(p){await fetch(ep(p),{method:'DELETE'});}
 
-function saveConfig() {
-  const url = document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
-  if(!url.startsWith('https://')) return log('URLは https:// で始めてください','error');
+function log(m,t=''){const b=document.getElementById('statusBox');b.className='status '+t;b.innerText=m;}
+function dlog(m){const b=document.getElementById('logBox');b.innerHTML+=`<div>[${new Date().toTimeString().slice(3,8)}] ${m}</div>`;b.scrollTop=b.scrollHeight;}
+function saveConfig(){
+  const url=document.getElementById('fbUrl').value.trim().replace(/\/$/,'');
+  if(!url.startsWith('https')) return log('URL不正','error');
   FB_URL=url; localStorage.setItem('fb_url',FB_URL);
   document.getElementById('configDetails').removeAttribute('open');
-  log('✅ 設定保存完了。','ok');
+  log('保存完了');
 }
-function loadConfig() {
+function loadConfig(){
   FB_URL=localStorage.getItem('fb_url')||'';
-  if(FB_URL){ document.getElementById('fbUrl').value=FB_URL; document.getElementById('configDetails').removeAttribute('open'); }
+  if(FB_URL){document.getElementById('fbUrl').value=FB_URL;document.getElementById('configDetails').removeAttribute('open');}
 }
-function log(msg,type='') { const b=document.getElementById('statusBox'); b.className='status '+type; b.innerHTML=msg; }
-function dlog(msg) { const b=document.getElementById('logBox'); b.innerHTML+=`<div>[${new Date().toTimeString().slice(0,8)}] ${msg}</div>`; b.scrollTop=b.scrollHeight; }
 
-// --- WebRTC Logic ---
-let localStream=null, peerConns=new Map();
-let pollTimer=null, animFrame=null, audioCtx=null, analyser=null;
-let roomId='';
+// --- WebRTC ---
+let localStream=null, peerConns=new Map(); // Map<viewerId, {pc, queue}>
+let pollTimer=null, roomId='';
 const ICE_SERVERS=[{urls:'stun:stun.l.google.com:19302'}];
 
-// SDP加工：ステレオ・高ビットレート強制 (OPUSコーデック設定)
 function setSdpStereo(sdp) {
   return sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt, params) => {
-    // 既に弄られていればスキップ
     if (params.includes('stereo=1')) return match;
-    // Opusのパラメータにステレオと高ビットレート(510kbps)を追加
     return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=510000;useinbandfec=1`;
   });
 }
 
 async function startBroadcast() {
-  if(!FB_URL) return log('Firebase URLを設定してください','error');
+  if(!FB_URL) return log('URL未設定','error');
   roomId=document.getElementById('roomId').value.trim();
-  if(!roomId) return log('ルームIDを入力してください','error');
+  if(!roomId) return log('ルームID未入力','error');
   document.getElementById('btnStart').disabled=true;
 
   try {
-    const srcType = document.getElementById('sourceType').value;
-    // 【重要】エコーキャンセル等を切らないと音楽がノイズと判定されて消える
-    const audioConstraints = {
-      echoCancellation: false,
-      autoGainControl: false,
-      noiseSuppression: false,
-      channelCount: 2 // ステレオ要求
-    };
-
-    if(srcType === 'mic') {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    const src = document.getElementById('sourceType').value;
+    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:2 };
+    
+    if(src === 'mic') {
+      localStream = await navigator.mediaDevices.getUserMedia({audio:constraints, video:false});
     } else {
-      // 画面共有時も補正を切る
-      localStream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: true, 
-        audio: audioConstraints
-      });
-      // 映像トラックは即停止して帯域を節約
-      localStream.getVideoTracks().forEach(t => t.stop());
+      localStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:constraints});
+      localStream.getVideoTracks().forEach(t => t.stop()); // 音声のみ
     }
   } catch(e) { 
     document.getElementById('btnStart').disabled=false; 
-    return log('マイク/画面共有エラー: '+e.message,'error'); 
+    return log('デバイスエラー: '+e.message,'error'); 
   }
 
-  // ルーム初期化
   await fbPut(`rooms/${roomId}`, { broadcaster:{online:true}, signals:{} });
-  
-  startVuMeter();
-  pollTimer = setInterval(pollSignals, 1000);
+  pollTimer = setInterval(pollSignals, 800);
   
   document.getElementById('btnStop').disabled=false;
-  log(`📡 配信中 (High Quality) ID: <code>${roomId}</code>`, 'ok');
+  log(`📡 配信中 ID: ${roomId}`, 'ok');
 }
 
 async function pollSignals() {
@@ -153,73 +117,75 @@ async function pollSignals() {
     const signals = await fbGet(`rooms/${roomId}/signals/toBC`);
     if(!signals) return;
 
-    for(const [viewerId, data] of Object.entries(signals)) {
+    for(const [vid, data] of Object.entries(signals)) {
       if(!data) continue;
       
-      // 新規接続要求 (request-offer)
+      // 新規参加
       if(data.type === 'request-offer') {
-        dlog(`New Viewer: ${viewerId}`);
-        await handleRequestOffer(viewerId);
-        // 処理済みリクエストを削除
-        await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`);
+        dlog(`New Viewer: ${vid}`);
+        await handleRequestOffer(vid);
+        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
       }
       
       // Answer受信
-      if(data.type === 'answer' && peerConns.has(viewerId)) {
-        const pc = peerConns.get(viewerId);
+      if(data.type === 'answer' && peerConns.has(vid)) {
+        const {pc, queue} = peerConns.get(vid);
         if(pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          dlog(`Answer Set: ${viewerId}`);
-          await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`);
+          dlog(`Answer Set: ${vid}`);
+          // ★ここで溜まっていたICEを処理
+          if(queue.length > 0) {
+            dlog(`Queue消化 (${queue.length})`);
+            for(const c of queue) await pc.addIceCandidate(c).catch(()=>{});
+            queue.length = 0;
+          }
         }
+        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
       }
       
-      // ICE Candidate受信
-      if(data.type === 'ice' && peerConns.has(viewerId)) {
-        const pc = peerConns.get(viewerId);
-        if(data.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(()=>{});
+      // ICE受信
+      if(data.type === 'ice' && peerConns.has(vid)) {
+        const {pc, queue} = peerConns.get(vid);
+        const c = new RTCIceCandidate(data.candidate);
+        if(pc.remoteDescription) {
+          await pc.addIceCandidate(c).catch(()=>{});
+        } else {
+          queue.push(c); // まだAnswer来てないなら溜める
+          dlog(`ICE Queue: ${vid}`);
         }
-        await fbDelete(`rooms/${roomId}/signals/toBC/${viewerId}`); // 受信したら消す
+        await fbDelete(`rooms/${roomId}/signals/toBC/${vid}`);
       }
     }
   } catch(e) { console.warn(e); }
 }
 
-async function handleRequestOffer(viewerId) {
-  // 既存があれば閉じる
-  if(peerConns.has(viewerId)) { peerConns.get(viewerId).close(); }
-
+async function handleRequestOffer(vid) {
+  if(peerConns.has(vid)) peerConns.get(vid).pc.close();
+  
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  peerConns.set(viewerId, pc);
+  peerConns.set(vid, { pc: pc, queue: [] });
 
-  // トラック追加
-  localStream.getAudioTracks().forEach(track => pc.addTrack(track, localStream));
+  localStream.getAudioTracks().forEach(t => pc.addTrack(t, localStream));
 
   pc.onicecandidate = e => {
     if(e.candidate) {
-      fbPatch(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
-        ice: e.candidate.toJSON()
-      }).catch(()=>{});
+      fbPatch(`rooms/${roomId}/signals/toViewer/${vid}`, {ice: e.candidate.toJSON()}).catch(()=>{});
     }
   };
 
   pc.onconnectionstatechange = () => {
-    const s = pc.connectionState;
-    if(s==='failed' || s==='disconnected') {
+    if(pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      dlog(`Viewer Disconnected: ${vid}`);
       pc.close();
-      peerConns.delete(viewerId);
-      dlog(`Viewer Disconnected: ${viewerId}`);
+      peerConns.delete(vid);
     }
   };
 
   const offer = await pc.createOffer();
-  // 【重要】送信側SDPも書き換えてステレオ・高ビットレートを宣言する
   offer.sdp = setSdpStereo(offer.sdp);
-  
   await pc.setLocalDescription(offer);
   
-  await fbPut(`rooms/${roomId}/signals/toViewer/${viewerId}`, {
+  await fbPut(`rooms/${roomId}/signals/toViewer/${vid}`, {
     type: 'offer', sdp: {type:offer.type, sdp:offer.sdp}
   });
 }
@@ -227,38 +193,12 @@ async function handleRequestOffer(viewerId) {
 function stopBroadcast() {
   clearInterval(pollTimer);
   if(localStream) localStream.getTracks().forEach(t=>t.stop());
-  peerConns.forEach(p=>p.close()); peerConns.clear();
-  
+  peerConns.forEach(v=>v.pc.close()); peerConns.clear();
   if(roomId) fbDelete(`rooms/${roomId}`);
   
-  stopVuMeter();
   document.getElementById('btnStart').disabled=false;
   document.getElementById('btnStop').disabled=true;
-  log('⏹ 配信停止');
-}
-
-function startVuMeter() {
-  audioCtx = new AudioContext();
-  analyser = audioCtx.createAnalyser();
-  const src = audioCtx.createMediaStreamSource(localStream);
-  src.connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  
-  const draw = () => {
-    if(localStream && localStream.active) {
-      animFrame = requestAnimationFrame(draw);
-      analyser.getByteFrequencyData(data);
-      const val = data.reduce((a,b)=>a+b,0) / data.length;
-      document.getElementById('vuBar').style.width = Math.min(100, val*2) + '%';
-    }
-  };
-  draw();
-}
-
-function stopVuMeter() {
-  if(animFrame) cancelAnimationFrame(animFrame);
-  if(audioCtx) audioCtx.close();
-  document.getElementById('vuBar').style.width='0%';
+  log('停止しました');
 }
 
 loadConfig();
