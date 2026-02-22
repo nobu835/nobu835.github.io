@@ -3,204 +3,246 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📱 Receiver (Debug Mode)</title>
+<title>📱 Receiver (Integrated)</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: monospace; background: #111; color: #ccc; padding: 10px; font-size: 14px; }
-.container { max-width: 600px; margin: 0 auto; }
-h1 { color: #66bb6a; font-size: 1.2rem; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
-input { width: 100%; padding: 10px; margin: 5px 0 10px; background: #222; border: 1px solid #444; color: #fff; }
-button { width: 100%; padding: 12px; margin-bottom: 5px; cursor: pointer; font-weight: bold; }
-.btn-connect { background: #2e7d32; color: #fff; border: none; }
-.btn-test { background: #f9a825; color: #000; border: none; }
-.btn-stop { background: #c62828; color: #fff; border: none; }
-button:disabled { opacity: 0.3; }
-#logBox { background: #000; border: 1px solid #333; height: 300px; overflow-y: scroll; padding: 5px; font-size: 0.75rem; white-space: pre-wrap; margin-top: 10px; }
-.log-time { color: #888; margin-right: 5px; }
-.log-ice-rem { color: #4fc3f7; } /* 相手の候補 */
-.log-ice-loc { color: #a5d6a7; } /* 自分の候補 */
-.log-err { color: #ef5350; }
-.log-ok { color: #66bb6a; font-weight: bold; }
+body { font-family: sans-serif; background: #111; color: #eee; padding: 15px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+.card { background: #222; padding: 20px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+h1 { color: #66bb6a; font-size: 1.4rem; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+input { width: 100%; padding: 12px; background: #333; border: 1px solid #555; color: #fff; border-radius: 6px; margin-bottom: 15px; font-size: 1rem; }
+button { width: 100%; padding: 14px; border-radius: 8px; border: none; font-size: 1rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
+.btn-con { background: #2e7d32; color: #fff; }
+.btn-dis { background: #c62828; color: #fff; opacity: 0.5; pointer-events: none; }
+.btn-dis.active { opacity: 1; pointer-events: auto; }
+.status { padding: 10px; border-radius: 6px; background: #000; margin-bottom: 15px; border-left: 5px solid #555; font-size: 0.9rem; min-height: 40px; display: flex; align-items: center; }
+.status.ok { border-left-color: #66bb6a; }
+.status.err { border-left-color: #ef5350; }
+.status.wait { border-left-color: #ffca28; }
+
+/* ビジュアライザー */
+.viz-box { height: 80px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 5px; margin-bottom: 15px; overflow: hidden; }
+.bar { width: 6%; background: #66bb6a; border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.05s ease; }
+
+/* ログ */
+.log-box { height: 150px; overflow-y: auto; background: #050505; border: 1px solid #333; padding: 8px; font-family: monospace; font-size: 0.75rem; color: #aaa; border-radius: 6px; }
+.log-row { margin-bottom: 4px; border-bottom: 1px solid #222; padding-bottom: 2px; }
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>📱 Audio Receiver <small>[DEBUG]</small></h1>
+<div class="card">
+  <h1>📱 Audio Receiver</h1>
   
-  <label>Firebase URL</label>
-  <input type="text" id="fbUrl" placeholder="https://PROJECT.firebaseio.com">
-  
-  <label>Room ID</label>
-  <input type="text" id="roomId" placeholder="room01">
-  
-  <button class="btn-connect" id="btnConnect" onclick="connect()">Connect (受信開始)</button>
-  <button class="btn-test" onclick="playTestSound()">🔔 Test Sound (音出し確認)</button>
-  <button class="btn-stop" id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
+  <div class="status" id="statusBox">設定を入力して接続してください</div>
 
-  <div id="logBox"></div>
+  <!-- 可視化エリア: これが動けばデータは来ている -->
+  <div class="viz-box" id="visualizer">
+    <!-- JSでバーを生成 -->
+  </div>
+
+  <input type="text" id="fbUrl" placeholder="Firebase URL (https://...)" value="">
+  <input type="text" id="roomId" placeholder="Room ID (例: room1)">
+  
+  <button id="btnConnect" class="btn-con" onclick="startConnect()">🔗 接続開始</button>
+  <button id="btnDisconnect" class="btn-dis" onclick="doDisconnect()">切断</button>
+
+  <div class="log-box" id="logBox"></div>
   <audio id="audioEl" autoplay playsinline></audio>
 </div>
 
 <script>
+// --- Utils ---
+const $ = id => document.getElementById(id);
+const log = (msg, type='Wait') => {
+  const t = new Date().toTimeString().split(' ')[0];
+  $('logBox').innerHTML += `<div class="log-row"><span style="color:#666">[${t}]</span> ${msg}</div>`;
+  $('logBox').scrollTop = $('logBox').scrollHeight;
+  const s = $('statusBox');
+  s.innerText = msg;
+  s.className = 'status ' + (type==='Error'?'err':(type==='OK'?'ok':'wait'));
+};
+
+// --- Config ---
 let FB_URL = localStorage.getItem('fb_url') || '';
-if(FB_URL) document.getElementById('fbUrl').value = FB_URL;
+if(FB_URL) $('fbUrl').value = FB_URL;
 
-const logBox = document.getElementById('logBox');
-function log(msg, type='') {
-  const t = new Date().toTimeString().slice(0,8);
-  const colorClass = type ? `class="${type}"` : '';
-  logBox.innerHTML += `<div ${colorClass}><span class="log-time">[${t}]</span>${msg}</div>`;
-  logBox.scrollTop = logBox.scrollHeight;
-  console.log(msg);
-}
-
-// サウンドテスト機能（復活）
-function playTestSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880; 
-    gain.gain.value = 0.1;
-    osc.start();
-    setTimeout(() => { osc.stop(); ctx.close(); }, 300);
-    log('🔔 テスト音再生指示', 'log-ok');
-  } catch(e) {
-    log('❌ テスト音再生失敗: ' + e.message, 'log-err');
-  }
-}
-
-// --- Firebase ---
 const ep = p => `${FB_URL}/${p}.json`;
-async function fbPut(p,d) { await fetch(ep(p), {method:'PUT', body:JSON.stringify(d)}); }
-async function fbGet(p) { const r = await fetch(ep(p)); return r.ok ? r.json() : null; }
-async function fbDelete(p) { await fetch(ep(p), {method:'DELETE'}); }
+const api = {
+  get: async p => (await fetch(ep(p))).json(),
+  put: async (p,d) => fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}),
+  del: async p => fetch(ep(p),{method:'DELETE'}),
+  patch: async (p,d) => fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)})
+};
 
-// --- WebRTC ---
-let pc = null, pollTimer = null, myViewerId = null, roomId = '';
-let candidateQueue = [];
+// --- Variables ---
+let pc = null, myId = null, roomId = null;
+let loops = { poll:null, hb:null, watch:null, viz:null };
+let audioCtx = null, analyser = null;
+let lastBcHeartbeat = 0;
 
-async function connect() {
-  FB_URL = document.getElementById('fbUrl').value.replace(/\/$/, '');
-  roomId = document.getElementById('roomId').value.trim();
-  if(!FB_URL || !roomId) return log('URLとRoomIDを入力してください', 'log-err');
+// ビジュアライザー初期化
+const VIZ_BARS = 15;
+const vizEl = $('visualizer');
+for(let i=0; i<VIZ_BARS; i++){
+  const b = document.createElement('div');
+  b.className = 'bar'; vizEl.appendChild(b);
+}
+
+async function startConnect() {
+  FB_URL = $('fbUrl').value.replace(/\/$/, '');
+  roomId = $('roomId').value.trim();
+  if(!FB_URL || !roomId) return log('URLとルームIDが必要です', 'Error');
   localStorage.setItem('fb_url', FB_URL);
 
-  document.getElementById('btnConnect').disabled = true;
-  document.getElementById('btnDisconnect').disabled = false;
-
-  // AudioContext再開（モバイル用）
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.resume();
-
-  myViewerId = 'v-' + Math.random().toString(36).substr(2, 5);
-  candidateQueue = [];
-  log(`*** 接続開始 ID:${myViewerId} ***`);
+  // AudioContext再開 (重要)
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await audioCtx.resume();
+  
+  $('btnConnect').style.display = 'none';
+  $('btnDisconnect').classList.add('active');
+  
+  myId = 'v' + Math.floor(Math.random()*100000);
+  log(`ID: ${myId} 接続待機中...`);
 
   try {
-    await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`, {type:'request-offer'});
-    pollTimer = setInterval(pollSignals, 1000);
+    // 参加表明
+    await api.put(`rooms/${roomId}/signals/toBC/${myId}`, {type:'request-offer'});
+    
+    // ループ開始
+    loops.poll = setInterval(polling, 1000);
+    loops.hb = setInterval(sendHeartbeat, 2000);
+    loops.watch = setInterval(checkBroadcasterAlive, 2000);
+    
   } catch(e) {
-    log('Firebase Error: ' + e.message, 'log-err');
-    disconnect();
+    log('Firebaseエラー: '+e.message, 'Error');
+    doDisconnect();
   }
 }
 
-async function pollSignals() {
-  if(!myViewerId) return;
+async function polling() {
+  if(!myId) return;
   try {
-    const data = await fbGet(`rooms/${roomId}/signals/toViewer/${myViewerId}`);
+    const data = await api.get(`rooms/${roomId}/signals/toViewer/${myId}`);
     if(!data) return;
 
-    if(data.type === 'offer') {
-      if(!pc) {
-        log('📩 Offer受信 -> PC作成');
-        await handleOffer(data.sdp);
-      }
+    if(data.type === 'offer' && !pc) {
+      log('Offer受信 → 接続処理開始');
+      await handleOffer(data.sdp);
     }
-    if(data.ice) {
-      const list = Array.isArray(data.ice) ? data.ice : [data.ice];
-      for(const c of list) await handleCandidate(c);
-      await fbDelete(`rooms/${roomId}/signals/toViewer/${myViewerId}/ice`);
+    if(data.ice && pc) {
+      if(pc.remoteDescription) {
+        // 配列か単体かチェックして追加
+        const list = Array.isArray(data.ice) ? data.ice : [data.ice];
+        for(const c of list) await pc.addIceCandidate(new RTCIceCandidate(c));
+        log(`ICE候補受信(${list.length})`);
+        await api.del(`rooms/${roomId}/signals/toViewer/${myId}/ice`);
+      }
     }
   } catch(e) {}
 }
 
-async function handleCandidate(ice) {
-  // デバッグ: 相手から来たCandidateの中身を表示
-  const cObj = new RTCIceCandidate(ice);
-  log(`📨 [REMOTE ICE] ${cObj.candidate.split(' ').slice(4,8).join(' ')}`, 'log-ice-rem'); // IPアドレス部分を抽出表示
-
-  if(!pc || !pc.remoteDescription) {
-    candidateQueue.push(cObj);
-    log(`   -> 保留 (Queue:${candidateQueue.length})`);
-  } else {
-    try {
-      await pc.addIceCandidate(cObj);
-      log('   -> 追加成功');
-    } catch(e) { log('   -> 追加失敗: '+e.message, 'log-err'); }
-  }
-}
-
-async function handleOffer(sdp) {
+async function handleOffer(remoteSdp) {
   pc = new RTCPeerConnection({
     iceServers: [{urls:'stun:stun.l.google.com:19302'}]
   });
 
-  // 自分(Receiver)側のCandidateを表示
-  pc.onicecandidate = e => {
-    if(e.candidate) {
-      log(`📤 [MY ICE] ${e.candidate.candidate.split(' ').slice(4,8).join(' ')}`, 'log-ice-loc');
-      fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}/ice`, e.candidate.toJSON()).catch(()=>{});
-    } else {
-      log('✅ ICE収集完了 (Gathering Complete)');
-    }
+  // 音声トラック受信時の処理
+  pc.ontrack = e => {
+    log('🎵 トラック受信 (再生準備)', 'OK');
+    const stream = e.streams[0];
+    $('audioEl').srcObject = stream;
+    $('audioEl').play().catch(err => log('再生エラー(タップしてね): '+err.message, 'wait'));
+    
+    // 解析用に接続
+    setupVisualizer(stream);
   };
 
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
-    log(`🔄 Connection State: ${s}`, s==='connected'?'log-ok':'');
+    log(`接続状態: ${s}`, s==='connected'?'OK':'Wait');
+    if(s==='disconnected'||s==='failed') doDisconnect();
   };
+
+  pc.onicecandidate = e => {
+    if(e.candidate) {
+      api.patch(`rooms/${roomId}/signals/toBC/${myId}`, {ice: e.candidate.toJSON()});
+    }
+  };
+
+  await pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
   
-  pc.oniceconnectionstatechange = () => {
-    log(`❄️ ICE State: ${pc.iceConnectionState}`);
-  };
-
-  pc.ontrack = e => {
-    log(`🎵 Track受信: kind=${e.track.kind}, id=${e.track.id}`, 'log-ok');
-    const el = document.getElementById('audioEl');
-    el.srcObject = e.streams[0];
-    el.play().then(()=>log('▶️ 再生開始成功', 'log-ok')).catch(err=>log('⚠️ 自動再生失敗: '+err.message));
-  };
-
-  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-  log('SetRemoteDesc OK');
-  
-  // 保留していたICEを処理
-  if(candidateQueue.length) {
-    log(`📦 Queue消化: ${candidateQueue.length}個`);
-    for(const c of candidateQueue) await pc.addIceCandidate(c).catch(()=>{});
-    candidateQueue = [];
-  }
-
   const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
   
-  await fbPut(`rooms/${roomId}/signals/toBC/${myViewerId}`, {
-    type: 'answer', sdp: {type:answer.type, sdp:answer.sdp}
+  // SDP書き換え (ステレオ強制)
+  answer.sdp = answer.sdp.replace(/a=fmtp:(\d+) (.*)/g, (m,pt,p) => 
+    p.includes('stereo') ? m : `a=fmtp:${pt} ${p};stereo=1;sprop-stereo=1;maxaveragebitrate=510000`
+  );
+
+  await pc.setLocalDescription(answer);
+  await api.patch(`rooms/${roomId}/signals/toBC/${myId}`, {
+    type:'answer', sdp:{type:answer.type, sdp:answer.sdp}
   });
-  log('📤 Answer送信');
+  log('Answer送信完了');
 }
 
-function disconnect() {
-  clearInterval(pollTimer);
+// 生存報告
+async function sendHeartbeat() {
+  if(roomId && myId) await api.put(`rooms/${roomId}/hb/viewer/${myId}`, Date.now());
+}
+
+// 相手の生存確認
+async function checkBroadcasterAlive() {
+  if(!roomId) return;
+  const ts = await api.get(`rooms/${roomId}/hb/bc`);
+  if(ts && Date.now() - ts > 5000) {
+    log('⚠️ Broadcasterからの反応がありません', 'Error');
+    // 自動切断はせず警告のみにする（一時的な瞬断対策）
+  } else if(ts) {
+    lastBcHeartbeat = ts;
+  }
+}
+
+function setupVisualizer(stream) {
+  if(loops.viz) cancelAnimationFrame(loops.viz);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 64;
+  const src = audioCtx.createMediaStreamSource(stream);
+  src.connect(analyser);
+  // audioCtx.destinationには繋がない(audioElが再生するため二重になるのを防ぐ)
+  
+  const buffer = new Uint8Array(analyser.frequencyBinCount);
+  const bars = document.querySelectorAll('.bar');
+  
+  const draw = () => {
+    analyser.getByteFrequencyData(buffer);
+    let sum = 0;
+    bars.forEach((bar, i) => {
+      const v = buffer[i+2] || 0; // 低域スキップ
+      bar.style.height = Math.max(2, v/255 * 80) + 'px';
+      sum += v;
+    });
+    // 波形が動いているかチェック
+    if(sum > 100 && $('statusBox').innerText.includes('Wait')) {
+       // log('データ受信中(音量あり)', 'OK'); // ログが溢れるのでコメントアウト
+    }
+    loops.viz = requestAnimationFrame(draw);
+  };
+  draw();
+}
+
+function doDisconnect() {
+  Object.values(loops).forEach(t => { if(t) typeof t==='number'?clearInterval(t):cancelAnimationFrame(t); });
   if(pc) pc.close();
-  pc = null;
-  log('*** 切断 ***');
-  document.getElementById('btnConnect').disabled = false;
-  document.getElementById('btnDisconnect').disabled = true;
+  if(roomId && myId) {
+    api.del(`rooms/${roomId}/signals/toBC/${myId}`);
+    api.del(`rooms/${roomId}/hb/viewer/${myId}`);
+  }
+  pc = null; myId = null;
+  $('audioEl').srcObject = null;
+  document.querySelectorAll('.bar').forEach(b=>b.style.height='2px');
+  
+  $('btnConnect').style.display = 'block';
+  $('btnDisconnect').classList.remove('active');
+  log('切断しました');
 }
 </script>
 </body>
