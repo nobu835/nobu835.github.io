@@ -1,230 +1,389 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8">
-<title>🎙️ Broadcaster (Debug First)</title>
-<style>
-  body { font-family: monospace; background: #111; color: #eee; margin: 10px; display: flex; flex-direction: column; height: 95vh; }
-  .control-panel { background: #222; padding: 10px; margin-bottom: 10px; border: 1px solid #444; }
-  button, input, select { background: #333; color: #fff; border: 1px solid #555; padding: 5px 10px; margin: 3px; font-family: monospace; }
-  button:hover { background: #444; cursor: pointer; }
-  textarea { flex-grow: 1; background: #000; color: #0f0; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #555; resize: none; white-space: pre; overflow-wrap: normal; overflow-x: scroll; }
-  #vuMeter { height: 10px; background: #333; margin-top: 5px; }
-  #vuBar { height: 100%; background: lime; width: 0%; transition: width 0.1s; }
-</style>
-</head>
-<body>
+    <head>
+        <meta charset="UTF-8" />
+        <title>🎙️ Broadcaster (Debug First)</title>
+        <style>
+            body {
+                font-family: monospace;
+                background: #111;
+                color: #eee;
+                margin: 10px;
+                display: flex;
+                flex-direction: column;
+                height: 95vh;
+            }
+            .control-panel {
+                background: #222;
+                padding: 10px;
+                margin-bottom: 10px;
+                border: 1px solid #444;
+            }
+            button,
+            input,
+            select {
+                background: #333;
+                color: #fff;
+                border: 1px solid #555;
+                padding: 5px 10px;
+                margin: 3px;
+                font-family: monospace;
+            }
+            button:hover {
+                background: #444;
+                cursor: pointer;
+            }
+            textarea {
+                flex-grow: 1;
+                background: #000;
+                color: #0f0;
+                font-family: monospace;
+                font-size: 12px;
+                padding: 10px;
+                border: 1px solid #555;
+                resize: none;
+                white-space: pre;
+                overflow-wrap: normal;
+                overflow-x: scroll;
+            }
+            #vuMeter {
+                height: 10px;
+                background: #333;
+                margin-top: 5px;
+            }
+            #vuBar {
+                height: 100%;
+                background: lime;
+                width: 0%;
+                transition: width 0.1s;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="control-panel">
+            <h3>🎙️ Broadcaster (Debug Edition)</h3>
+            Firebase:
+            <input
+                type="text"
+                id="fbUrl"
+                placeholder="https://...firebaseio.com"
+                style="width: 300px"
+            />
+            Room: <input type="text" id="roomId" value="room-test1" />
+            Source:
+            <select id="sourceType">
+                <option value="display">🖥️ Display (System Audio)</option>
+                <option value="mic">🎤 Mic</option>
+            </select>
+            <button id="btnStart" onclick="start()">📡 Start</button>
+            <button id="btnStop" onclick="stop()" disabled>⏹ Stop</button>
+            <button onclick="copyLog()">📋 Copy Log</button>
+            <button onclick="$('logArea').value = ''">🗑 Clear Log</button>
+            <div id="vuMeter"><div id="vuBar"></div></div>
+        </div>
 
-<div class="control-panel">
-  <h3>🎙️ Broadcaster (Debug Edition)</h3>
-  Firebase: <input type="text" id="fbUrl" placeholder="https://...firebaseio.com" style="width: 300px;">
-  Room: <input type="text" id="roomId" value="room-test1">
-  Source: 
-  <select id="sourceType">
-    <option value="display">🖥️ Display (System Audio)</option>
-    <option value="mic">🎤 Mic</option>
-  </select>
-  <button id="btnStart" onclick="start()">📡 Start</button>
-  <button id="btnStop" onclick="stop()" disabled>⏹ Stop</button>
-  <button onclick="copyLog()">📋 Copy Log</button>
-  <button onclick="$('logArea').value=''">🗑 Clear Log</button>
-  <div id="vuMeter"><div id="vuBar"></div></div>
-</div>
+        <textarea id="logArea" readonly></textarea>
 
-<textarea id="logArea" readonly></textarea>
+        <script>
+            const $ = (id) => document.getElementById(id);
+            function dlog(msg) {
+                const t = new Date().toISOString().split("T")[1].slice(0, -1); // HH:MM:SS.mmm
+                const txt = `[${t}] ${msg}\n`;
+                $("logArea").value += txt;
+                $("logArea").scrollTop = $("logArea").scrollHeight;
+                console.log(`[BC] ${msg}`);
+            }
+            function copyLog() {
+                const ta = $("logArea");
+                ta.select();
+                document.execCommand("copy");
+                dlog("✅ ログをクリップボードにコピーしました");
+            }
 
-<script>
-const $ = id => document.getElementById(id);
-function dlog(msg) {
-  const t = new Date().toISOString().split('T')[1].slice(0,-1); // HH:MM:SS.mmm
-  const txt = `[${t}] ${msg}\n`;
-  $('logArea').value += txt;
-  $('logArea').scrollTop = $('logArea').scrollHeight;
-  console.log(`[BC] ${msg}`);
-}
-function copyLog() {
-  const ta = $('logArea');
-  ta.select(); document.execCommand('copy'); dlog('✅ ログをクリップボードにコピーしました');
-}
+            let FB_URL = localStorage.getItem("fb_url") || "";
+            if (FB_URL) $("fbUrl").value = FB_URL;
 
-let FB_URL = localStorage.getItem('fb_url') || '';
-if(FB_URL) $('fbUrl').value = FB_URL;
+            const ep = (p) => `${FB_URL}/${p}.json`;
+            const api = {
+                get: async (p) => {
+                    const r = await fetch(ep(p));
+                    return r.json();
+                },
+                put: async (p, d) =>
+                    fetch(ep(p), { method: "PUT", body: JSON.stringify(d) }),
+                patch: async (p, d) =>
+                    fetch(ep(p), { method: "PATCH", body: JSON.stringify(d) }),
+                del: async (p) => fetch(ep(p), { method: "DELETE" }),
+            };
 
-const ep = p => `${FB_URL}/${p}.json`;
-const api = {
-  get: async p => { const r = await fetch(ep(p)); return r.json(); },
-  put: async (p,d) => fetch(ep(p),{method:'PUT',body:JSON.stringify(d)}),
-  patch: async (p,d) => fetch(ep(p),{method:'PATCH',body:JSON.stringify(d)}),
-  del: async p => fetch(ep(p),{method:'DELETE'})
-};
+            let localStream,
+                pcs = new Map(),
+                pollTimer,
+                audioCtx,
+                analyserFrame;
+            const rId = () => $("roomId").value.trim();
 
-let localStream, pcs = new Map(), pollTimer, audioCtx, analyserFrame;
-const rId = () => $('roomId').value.trim();
+            // SDPを強制的にステレオ＆高音質に書き換えるハック
+            function forceStereoHighBitrate(sdp) {
+                let lines = sdp.split("\r\n");
+                let opusPayload = 111; // default
+                for (let line of lines) {
+                    if (
+                        line.startsWith("a=rtpmap:") &&
+                        line.includes("opus/48000/2")
+                    ) {
+                        opusPayload = line.match(/a=rtpmap:(\d+) /)[1];
+                        break;
+                    }
+                }
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].startsWith("a=fmtp:" + opusPayload)) {
+                        dlog(`🛠 SDP Munging: 修改前 -> ${lines[i]}`);
+                        if (!lines[i].includes("stereo=1")) {
+                            lines[i] +=
+                                ";stereo=1;sprop-stereo=1;maxaveragebitrate=510000";
+                        }
+                        dlog(`🛠 SDP Munging: 修改後 -> ${lines[i]}`);
+                    }
+                }
+                return lines.join("\r\n");
+            }
 
-// SDPを強制的にステレオ＆高音質に書き換えるハック
-function forceStereoHighBitrate(sdp) {
-  let lines = sdp.split('\r\n');
-  let opusPayload = 111; // default
-  for (let line of lines) {
-    if (line.startsWith('a=rtpmap:') && line.includes('opus/48000/2')) {
-      opusPayload = line.match(/a=rtpmap:(\d+) /)[1]; break;
-    }
-  }
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('a=fmtp:' + opusPayload)) {
-      dlog(`🛠 SDP Munging: 修改前 -> ${lines[i]}`);
-      if (!lines[i].includes('stereo=1')) {
-        lines[i] += ';stereo=1;sprop-stereo=1;maxaveragebitrate=510000';
-      }
-      dlog(`🛠 SDP Munging: 修改後 -> ${lines[i]}`);
-    }
-  }
-  return lines.join('\r\n');
-}
+            async function start() {
+                FB_URL = $("fbUrl").value.replace(/\/$/, "");
+                localStorage.setItem("fb_url", FB_URL);
+                if (!FB_URL || !rId())
+                    return dlog("❌ URLまたはRoomIDが空です");
 
-async function start() {
-  FB_URL = $('fbUrl').value.replace(/\/$/,'');
-  localStorage.setItem('fb_url', FB_URL);
-  if(!FB_URL || !rId()) return dlog('❌ URLまたはRoomIDが空です');
-  
-  $('btnStart').disabled = true; $('btnStop').disabled = false;
-  dlog(`🚀 配信開始シーケンス開始 Room: ${rId()}`);
+                $("btnStart").disabled = true;
+                $("btnStop").disabled = false;
+                dlog(`🚀 配信開始シーケンス開始 Room: ${rId()}`);
 
-  try {
-    const isMic = $('sourceType').value === 'mic';
-    // 音楽向けに音声処理（エコーキャンセル等）を全て無効化する
-    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 48000, channelCount: 2 };
-    
-    if(isMic) {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-    } else {
-      const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: audioConstraints });
-      const aTrack = disp.getAudioTracks()[0];
-      if(!aTrack) throw new Error('デスクトップ音声が取得できませんでした（共有時に「システムオーディオを共有」にチェックを入れましたか？）');
-      disp.getVideoTracks().forEach(t => t.stop()); // ビデオは不要なので止める
-      localStream = new MediaStream([aTrack]);
-    }
-    
-    const track = localStream.getAudioTracks()[0];
-    const settings = track.getSettings();
-    dlog(`🎤 Audio Track取得: ${track.label} (echoCancel:${settings.echoCancellation}, channels:${settings.channelCount}, sampleRate:${settings.sampleRate})`);
+                try {
+                    const isMic = $("sourceType").value === "mic";
+                    // 音楽向けに音声処理（エコーキャンセル等）を全て無効化する
+                    const audioConstraints = {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 48000,
+                        channelCount: 2,
+                    };
 
-    await api.put(`rooms/${rId()}`, { bc: { ts: Date.now() } });
-    dlog('✅ Firebase: Room初期化完了');
+                    if (isMic) {
+                        localStream = await navigator.mediaDevices.getUserMedia(
+                            { audio: audioConstraints },
+                        );
+                    } else {
+                        const disp =
+                            await navigator.mediaDevices.getDisplayMedia({
+                                video: true,
+                                audio: audioConstraints,
+                            });
+                        const aTrack = disp.getAudioTracks()[0];
+                        if (!aTrack)
+                            throw new Error(
+                                "デスクトップ音声が取得できませんでした（共有時に「システムオーディオを共有」にチェックを入れましたか？）",
+                            );
+                        disp.getVideoTracks().forEach((t) => t.stop()); // ビデオは不要なので止める
+                        localStream = new MediaStream([aTrack]);
+                    }
 
-    startVuMeter(localStream);
-    pollTimer = setInterval(poll, 1500);
+                    const track = localStream.getAudioTracks()[0];
+                    const settings = track.getSettings();
+                    dlog(
+                        `🎤 Audio Track取得: ${track.label} (echoCancel:${settings.echoCancellation}, channels:${settings.channelCount}, sampleRate:${settings.sampleRate})`,
+                    );
 
-  } catch(e) { dlog(`❌ Start エラー: ${e.message}`); stop(); }
-}
+                    await api.put(`rooms/${rId()}`, { bc: { ts: Date.now() } });
+                    dlog("✅ Firebase: Room初期化完了");
 
-async function poll() {
-  try {
-    const toBC = await api.get(`rooms/${rId()}/signals/toBC`);
-    if(!toBC) return;
-    for(const [vid, data] of Object.entries(toBC)) {
-      if(!data) continue;
+                    startVuMeter(localStream);
+                    pollTimer = setInterval(poll, 1500);
+                } catch (e) {
+                    dlog(`❌ Start エラー: ${e.message}`);
+                    stop();
+                }
+            }
 
-      if(data.type === 'request-offer') {
-        dlog(`📥 [${vid}] request-offerを受信`);
-        await handleRequest(vid);
-        await api.del(`rooms/${rId()}/signals/toBC/${vid}/type`);
-      }
-      if(data.type === 'answer' && pcs.has(vid)) {
-        dlog(`📥 [${vid}] Answerを受信 (SDP長: ${data.sdp.sdp.length})`);
-        await pcs.get(vid).pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        await api.del(`rooms/${rId()}/signals/toBC/${vid}/type`);
-      }
-      if(data.ice && pcs.has(vid)) {
-        const cands = Array.isArray(data.candidate) ? data.candidate : Object.values(data.candidate||{});
-        dlog(`📥 [${vid}] 相手のICE Candidate ${cands.length}件を受信`);
-        for(const c of cands) {
-          await pcs.get(vid).pc.addIceCandidate(new RTCIceCandidate(c)).catch(e => dlog(`⚠️ ICE追加エラー: ${e.message}`));
-          dlog(`🧊 Remote ICE追加: ${c.candidate.split(' ')[4]} (typ ${c.candidate.split(' ')[7]})`);
-        }
-        await api.del(`rooms/${rId()}/signals/toBC/${vid}/ice`);
-      }
-    }
-  } catch(e) { /* ignore network error logs in polling */ }
-}
+            async function poll() {
+                try {
+                    const toBC = await api.get(`rooms/${rId()}/signals/toBC`);
+                    if (!toBC) return;
+                    for (const [vid, data] of Object.entries(toBC)) {
+                        if (!data) continue;
 
-async function handleRequest(vid) {
-  if(pcs.has(vid)) pcs.get(vid).pc.close();
-  
-  const pc = new RTCPeerConnection({ iceServers: [{urls: 'stun:stun.l.google.com:19302'}] });
-  pcs.set(vid, { pc });
+                        if (data.type === "request-offer") {
+                            dlog(`📥 [${vid}] request-offerを受信`);
+                            await handleRequest(vid);
+                            await api.del(
+                                `rooms/${rId()}/signals/toBC/${vid}/type`,
+                            );
+                        }
+                        if (data.type === "answer" && pcs.has(vid)) {
+                            dlog(
+                                `📥 [${vid}] Answerを受信 (SDP長: ${data.sdp.sdp.length})`,
+                            );
+                            await pcs
+                                .get(vid)
+                                .pc.setRemoteDescription(
+                                    new RTCSessionDescription(data.sdp),
+                                );
+                            await api.del(
+                                `rooms/${rId()}/signals/toBC/${vid}/type`,
+                            );
+                        }
+                        if (data.ice && pcs.has(vid)) {
+                            const cands = Array.isArray(data.candidate)
+                                ? data.candidate
+                                : Object.values(data.candidate || {});
+                            dlog(
+                                `📥 [${vid}] 相手のICE Candidate ${cands.length}件を受信`,
+                            );
+                            for (const c of cands) {
+                                await pcs
+                                    .get(vid)
+                                    .pc.addIceCandidate(new RTCIceCandidate(c))
+                                    .catch((e) =>
+                                        dlog(`⚠️ ICE追加エラー: ${e.message}`),
+                                    );
+                                dlog(
+                                    `🧊 Remote ICE追加: ${c.candidate.split(" ")[4]} (typ ${c.candidate.split(" ")[7]})`,
+                                );
+                            }
+                            await api.del(
+                                `rooms/${rId()}/signals/toBC/${vid}/ice`,
+                            );
+                        }
+                    }
+                } catch (e) {
+                    /* ignore network error logs in polling */
+                }
+            }
 
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+            async function handleRequest(vid) {
+                if (pcs.has(vid)) pcs.get(vid).pc.close();
 
-  let iceBatch = []; let iceTimer = null;
-  pc.onicecandidate = e => {
-    if(e.candidate) {
-      const ip = e.candidate.candidate.split(' ')[4];
-      const typ = e.candidate.candidate.split(' ')[7];
-      dlog(`🧊 Local ICE生成: ${ip} (typ ${typ})`); // ★ここで生のIP(.local以外)が出ればmDNS無効化大成功！
-      iceBatch.push(e.candidate.toJSON());
-      clearTimeout(iceTimer);
-      iceTimer = setTimeout(() => {
-        dlog(`📤 [${vid}] ICE Candidates ${iceBatch.length}件をFirebaseへ送信`);
-        api.patch(`rooms/${rId()}/signals/toViewer/${vid}`, { ice: iceBatch.splice(0) });
-      }, 200); // 200msバッファリングして一気に送る（安定化の要）
-    }
-  };
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+                });
+                pcs.set(vid, { pc });
 
-  pc.onconnectionstatechange = () => {
-    dlog(`🔄 [${vid}] 接続ステータス: ${pc.connectionState}`);
-    if(pc.connectionState === 'connected') startStats(pc, vid);
-  };
+                // 高音質化修正前//localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                // 修正後
+                localStream.getTracks().forEach((t) => {
+                    const sender = pc.addTrack(t, localStream);
 
-  const offer = await pc.createOffer();
-  offer.sdp = forceStereoHighBitrate(offer.sdp); // 高音質化ハック
-  await pc.setLocalDescription(offer);
-  
-  dlog(`📤 [${vid}] Offer作成＆Firebaseへ送信 (SDP長: ${offer.sdp.length})`);
-  await api.put(`rooms/${rId()}/signals/toViewer/${vid}`, { type: 'offer', sdp: { type: offer.type, sdp: offer.sdp } });
-}
+                    // 【高音質化ハック】エンコーダーのビットレート上限を公式APIで強制開放する
+                    const params = sender.getParameters();
+                    if (!params.encodings) params.encodings = [{}];
+                    params.encodings[0].maxBitrate = 510000; // 510kbps (510000 bps)
 
-function startStats(pc, vid) {
-  let prevBytes = 0;
-  const t = setInterval(async () => {
-    if(pc.connectionState !== 'connected') return clearInterval(t);
-    const stats = await pc.getStats();
-    stats.forEach(s => {
-      if(s.type === 'outbound-rtp' && s.kind === 'audio') {
-        const kbps = ((s.bytesSent - prevBytes) * 8 / 1000 / 3).toFixed(1); // 3秒間の平均kbps
-        prevBytes = s.bytesSent;
-        dlog(`📊 [${vid}] 送信中: ${kbps} kbps | Packets: ${s.packetsSent}`);
-      }
-    });
-  }, 3000);
-}
+                    sender
+                        .setParameters(params)
+                        .then(() =>
+                            dlog(`🚀 エンコーダー上限を510kbpsに開放しました`),
+                        )
+                        .catch((e) =>
+                            dlog(`⚠️ Bitrate設定エラー: ${e.message}`),
+                        );
+                });
+                // 修正後おわり
 
-function startVuMeter(stream) {
-  audioCtx = new AudioContext();
-  const src = audioCtx.createMediaStreamSource(stream);
-  const analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 256;
-  src.connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  const draw = () => {
-    if(!localStream) return;
-    analyser.getByteFrequencyData(data);
-    let max = 0; for(let i=0; i<data.length; i++) if(data[i]>max) max=data[i];
-    $('vuBar').style.width = (max / 255 * 100) + '%';
-    analyserFrame = requestAnimationFrame(draw);
-  };
-  draw();
-}
+                let iceBatch = [];
+                let iceTimer = null;
+                pc.onicecandidate = (e) => {
+                    if (e.candidate) {
+                        const ip = e.candidate.candidate.split(" ")[4];
+                        const typ = e.candidate.candidate.split(" ")[7];
+                        dlog(`🧊 Local ICE生成: ${ip} (typ ${typ})`); // ★ここで生のIP(.local以外)が出ればmDNS無効化大成功！
+                        iceBatch.push(e.candidate.toJSON());
+                        clearTimeout(iceTimer);
+                        iceTimer = setTimeout(() => {
+                            dlog(
+                                `📤 [${vid}] ICE Candidates ${iceBatch.length}件をFirebaseへ送信`,
+                            );
+                            api.patch(
+                                `rooms/${rId()}/signals/toViewer/${vid}`,
+                                { ice: iceBatch.splice(0) },
+                            );
+                        }, 200); // 200msバッファリングして一気に送る（安定化の要）
+                    }
+                };
 
-function stop() {
-  clearInterval(pollTimer);
-  if(localStream) localStream.getTracks().forEach(t => t.stop());
-  pcs.forEach(v => v.pc.close()); pcs.clear(); localStream = null;
-  cancelAnimationFrame(analyserFrame); if(audioCtx) audioCtx.close();
-  $('vuBar').style.width = '0%';
-  $('btnStart').disabled = false; $('btnStop').disabled = true;
-  dlog('⏹ 配信を停止しました');
-}
-</script>
-</body>
+                pc.onconnectionstatechange = () => {
+                    dlog(`🔄 [${vid}] 接続ステータス: ${pc.connectionState}`);
+                    if (pc.connectionState === "connected") startStats(pc, vid);
+                };
+
+                const offer = await pc.createOffer();
+                offer.sdp = forceStereoHighBitrate(offer.sdp); // 高音質化ハック
+                await pc.setLocalDescription(offer);
+
+                dlog(
+                    `📤 [${vid}] Offer作成＆Firebaseへ送信 (SDP長: ${offer.sdp.length})`,
+                );
+                await api.put(`rooms/${rId()}/signals/toViewer/${vid}`, {
+                    type: "offer",
+                    sdp: { type: offer.type, sdp: offer.sdp },
+                });
+            }
+
+            function startStats(pc, vid) {
+                let prevBytes = 0;
+                const t = setInterval(async () => {
+                    if (pc.connectionState !== "connected")
+                        return clearInterval(t);
+                    const stats = await pc.getStats();
+                    stats.forEach((s) => {
+                        if (s.type === "outbound-rtp" && s.kind === "audio") {
+                            const kbps = (
+                                ((s.bytesSent - prevBytes) * 8) /
+                                1000 /
+                                3
+                            ).toFixed(1); // 3秒間の平均kbps
+                            prevBytes = s.bytesSent;
+                            dlog(
+                                `📊 [${vid}] 送信中: ${kbps} kbps | Packets: ${s.packetsSent}`,
+                            );
+                        }
+                    });
+                }, 3000);
+            }
+
+            function startVuMeter(stream) {
+                audioCtx = new AudioContext();
+                const src = audioCtx.createMediaStreamSource(stream);
+                const analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+                src.connect(analyser);
+                const data = new Uint8Array(analyser.frequencyBinCount);
+                const draw = () => {
+                    if (!localStream) return;
+                    analyser.getByteFrequencyData(data);
+                    let max = 0;
+                    for (let i = 0; i < data.length; i++)
+                        if (data[i] > max) max = data[i];
+                    $("vuBar").style.width = (max / 255) * 100 + "%";
+                    analyserFrame = requestAnimationFrame(draw);
+                };
+                draw();
+            }
+
+            function stop() {
+                clearInterval(pollTimer);
+                if (localStream)
+                    localStream.getTracks().forEach((t) => t.stop());
+                pcs.forEach((v) => v.pc.close());
+                pcs.clear();
+                localStream = null;
+                cancelAnimationFrame(analyserFrame);
+                if (audioCtx) audioCtx.close();
+                $("vuBar").style.width = "0%";
+                $("btnStart").disabled = false;
+                $("btnStop").disabled = true;
+                dlog("⏹ 配信を停止しました");
+            }
+        </script>
+    </body>
 </html>
