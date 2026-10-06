@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft Skin Editor</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;display:flex;flex-direction:column;background:#222;color:#eee;font:14px sans-serif}
+  #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;background:#333}
+  button,select{background:#555;color:#fff;border:1px solid #777;padding:4px 10px;border-radius:4px;cursor:pointer}
+  button.active{background:#3a7;border-color:#5c9}
+  #main{flex:1;display:flex;min-height:0}
+  #left{flex:1;display:flex;overflow:auto;background:#2b2b2b;padding:8px;min-width:0}
+  #right{flex:1;position:relative;background:#6b8fb5;min-width:0}
+  #view{margin:auto;flex:none;image-rendering:pixelated;touch-action:none;cursor:crosshair;background:#000}
+  #three{position:absolute;inset:0}
+  label{display:flex;align-items:center;gap:4px}
+  .sep{opacity:.5}
+  #info{opacity:.8}
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="openSkin">スキン読込</button>
+  <button id="openLegg">レギンス読込</button>
+  <button id="openArmor">防具読込</button>
+  <button id="saveSkin">スキン書出</button>
+  <button id="saveLegg">レギンス書出</button>
+  <button id="saveArmor">防具書出</button>
+  <input type="file" id="file" accept="image/*" hidden>
+  <span class="sep">|</span>
+  <label>編集対象
+    <label><input type="radio" name="target" value="skin" checked>スキン</label>
+    <label><input type="radio" name="target" value="legg">レギンス</label>
+    <label><input type="radio" name="target" value="armor">防具</label>
+  </label>
+</div>
+<div id="bar" style="padding-top:0">
+  <label><input type="checkbox" id="over" checked>アウタースキン</label>
+  <label><input type="checkbox" id="leggVis">レギンス表示</label>
+  <label><input type="checkbox" id="armorVis">防具表示</label>
+  <label>解像度<select id="res">
+    <option value="1">×1 (64)</option><option value="2">×2 (128)</option>
+    <option value="4">×4 (256)</option><option value="8">×8 (512)</option>
+    <option value="16">×16 (1024)</option></select></label>
+  <span id="info"></span>
+  <span class="sep">|</span>
+  <button class="tool active" data-t="pen">ペン</button>
+  <button class="tool" data-t="eraser">消しゴム</button>
+  <button class="tool" data-t="fill">塗りつぶし</button>
+  <button class="tool" data-t="pick">スポイト</button>
+  <input type="color" id="color" value="#c0392b">
+  <button id="undo">元に戻す</button>
+  <button id="redo">やり直し</button>
+  <button id="clear">全消去</button>
+</div>
+<div id="bar" style="padding-top:0">
+  <label>拡大<input type="range" id="zoom" min="1" max="24" value="10"><span id="zv">10</span>px/ドット</label>
+  <label><input type="checkbox" id="grid" checked>グリッド</label>
+  <label><input type="checkbox" id="net" checked>展開図枠</label>
+  <label>腕<select id="slim"><option value="0">Classic (4px)</option><option value="1">Slim (3px)</option></select></label>
+  <span class="sep">|</span>
+  <button id="walk">▶ 歩く</button>
+  <button id="reset">初期姿勢</button>
+</div>
+<div id="main">
+  <div id="left"><canvas id="view"></canvas></div>
+  <div id="right"><div id="three"></div></div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const N = 64, MAXS = 16;
+let S = 1, cs = 10, target = 'skin';
+
+// 層ごとの膨らみ量(各軸の合計。大きいほど外側)
+const GROW = { over:0.5, legg:1, armor:2, armor2:2.5 };
+
+const mkLayer = h => {
+  const c = document.createElement('canvas');
+  c.width = N; c.height = h;
+  return { c, x: c.getContext('2d', { willReadFrequently:true }), h };
+};
+const L = { skin: mkLayer(64), legg: mkLayer(32), armor: mkLayer(32) };
+const KEYS = Object.keys(L);
+// (a) スクリプトの `const KEYS = ...` の直後に追加
+const dirty = { skin:false, legg:false, armor:false };
+addEventListener('beforeunload', e => {
+  if(Object.values(dirty).some(Boolean)){ e.preventDefault(); e.returnValue = ''; }
+});
+const view = $('view');
+const vctx = view.getContext('2d');
+
+// ---- パーツ定義
+function parts(slim) {
+  const aw = slim ? 3 : 4;
+  return {
+    head:  { s:[8,8,8],   base:[0,0],   over:[32,0],  pos:[0,28,0] },
+    body:  { s:[8,12,4],  base:[16,16], over:[16,32], pos:[0,18,0] },
+    rarm:  { s:[aw,12,4], base:[40,16], over:[40,32], pos:[-(4+aw/2),18,0], pivot:[-(4+aw/2),24,0] },
+    larm:  { s:[aw,12,4], base:[32,48], over:[48,48], pos:[ (4+aw/2),18,0], pivot:[ (4+aw/2),24,0] },
+    rleg:  { s:[4,12,4],  base:[0,16],  over:[0,32],  pos:[-2,6,0], pivot:[-2,12,0] },
+    lleg:  { s:[4,12,4],  base:[16,48], over:[0,48],  pos:[ 2,6,0], pivot:[ 2,12,0] },
+  };
+}
+// 防具(64x32): 頭は2層、左腕・左脚は右の鏡像
+const armorDef = {
+  head:[{ base:[0,0], grow:GROW.armor, col:'#7dff7d' }, { base:[32,0], grow:GROW.armor2, col:'#ffe14d' }],
+  body:[{ base:[16,16], grow:GROW.armor, col:'#7dff7d' }],
+  rarm:[{ base:[40,16], s:[4,12,4], grow:GROW.armor, col:'#7dff7d' }],
+  larm:[{ base:[40,16], s:[4,12,4], grow:GROW.armor, mirror:true }],
+  rleg:[{ base:[0,16], grow:GROW.armor, col:'#7dff7d' }],
+  lleg:[{ base:[0,16], grow:GROW.armor, mirror:true }],
+};
+// レギンス(64x32): 胴と脚のみ
+const leggDef = {
+  body:[{ base:[16,16], grow:GROW.legg, col:'#c58cff' }],
+  rleg:[{ base:[0,16], grow:GROW.legg, col:'#c58cff' }],
+  lleg:[{ base:[0,16], grow:GROW.legg, mirror:true }],
+};
+const defs = { legg:leggDef, armor:armorDef };
+
+function faceRects(w,h,d,u,v){ // +x, -x, +y, -y, +z, -z
+  return [
+    [u+d+w, v+d, d, h], [u, v+d, d, h],
+    [u+d, v, w, d], [u+d+w, v, w, d],
+    [u+d, v+d, w, h], [u+2*d+w, v+d, w, h],
+  ];
+}
+function makeBox(w,h,d,u,v,grow,th,mirror){
+  const g = new THREE.BoxGeometry(w+grow, h+grow, d+grow);
+  const uv = g.attributes.uv;
+  const rects = faceRects(w,h,d,u,v);
+  if(mirror) [rects[0],rects[1]] = [rects[1],rects[0]];
+  rects.forEach(([x,y,fw,fh],i)=>{
+    let u0=x/N, u1=(x+fw)/N, v0=1-y/th, v1=1-(y+fh)/th;
+    if(i===3) [v0,v1]=[v1,v0];
+    if(mirror) [u0,u1]=[u1,u0];
+    uv.setXY(i*4+0,u0,v0); uv.setXY(i*4+1,u1,v0);
+    uv.setXY(i*4+2,u0,v1); uv.setXY(i*4+3,u1,v1);
+  });
+  return g;
+}
+
+// ---- three.js
+const wrap = $('three');
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(devicePixelRatio);
+wrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40,1,0.1,1000);
+camera.position.set(30,35,60);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0,16,0);
+controls.update();
+
+const tex = {};
+const mkTex = c => {
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+};
+const mkMat = () => new THREE.MeshBasicMaterial({ transparent:true, alphaTest:0.01, side:THREE.DoubleSide });
+const mats = { skin:mkMat(), legg:mkMat(), armor:mkMat() };
+function remakeTex(){
+  for(const k of KEYS){
+    if(tex[k]) tex[k].dispose();
+    tex[k] = mkTex(L[k].c);
+    mats[k].map = tex[k];
+    mats[k].needsUpdate = true;
+  }
+}
+
+const model = new THREE.Group();
+scene.add(model);
+const vis = { over:[], legg:[], armor:[] };
+const limbs = {};
+function buildModel(slim){
+  while(model.children.length){ const c=model.children.pop(); c.traverse(o=>o.geometry&&o.geometry.dispose()); }
+  for(const k in vis) vis[k].length = 0;
+  for(const [name,p] of Object.entries(parts(slim))){
+    const [w,h,d]=p.s;
+    const pv = p.pivot || [0,0,0];
+    const g = new THREE.Group();
+    g.position.set(...pv);
+    const off = p.pos.map((v,i)=>v-pv[i]);
+    // 変更後 (dx: X方向の追加オフセット)
+    const add = (mesh, key, dx=0) => {
+      mesh.position.set(off[0]+dx, off[1], off[2]);
+      if(key){ mesh.visible = $(key==='over'?'over':key+'Vis').checked; vis[key].push(mesh); }
+      g.add(mesh);
+    };
+    add(new THREE.Mesh(makeBox(w,h,d,...p.base,0,64,false), mats.skin));
+    add(new THREE.Mesh(makeBox(w,h,d,...p.over,GROW.over,64,false), mats.skin), 'over');
+    // 変更後
+    for(const layer of ['legg','armor']){
+      (defs[layer][name]||[]).forEach(ld=>{
+        const s = ld.s || p.s;
+        const isArm = name==='rarm' || name==='larm';
+        const dx = (layer==='armor' && isArm) ? parts(false)[name].pos[0] - p.pos[0] : 0;
+        add(new THREE.Mesh(makeBox(...s,...ld.base,ld.grow,32,!!ld.mirror), mats[layer]), layer, dx);
+      });
+    }
+    model.add(g);
+    if(p.pivot) limbs[name]=g;
+  }
+  applyPose();
+}
+function resize(){
+  const r = wrap.getBoundingClientRect();
+  renderer.setSize(r.width,r.height);
+  camera.aspect = r.width/r.height;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+// ---- 歩行
+let walking = false, phase = 0;
+function applyPose(){
+  if(!limbs.rarm) return;
+  const s = Math.sin(phase)*0.8;
+  limbs.larm.rotation.x = s;  limbs.rleg.rotation.x = s;
+  limbs.rarm.rotation.x = -s; limbs.lleg.rotation.x = -s;
+}
+$('walk').onclick = () => {
+  walking = !walking;
+  $('walk').textContent = walking ? '⏸ 一時停止' : '▶ 歩く';
+};
+$('reset').onclick = () => {
+  walking = false; phase = 0;
+  $('walk').textContent = '▶ 歩く';
+  applyPose();
+};
+const clock = new THREE.Clock();
+(function loop(){
+  requestAnimationFrame(loop);
+  const dt = clock.getDelta();
+  if(walking){ phase += dt*5; applyPose(); }
+  controls.update();
+  renderer.render(scene,camera);
+})();
+
+// ---- 解像度
+const defZoom = s => Math.max(1,Math.min(24,Math.round(640/(N*s))));
+function applyScale(newS, copy){
+  for(const l of Object.values(L)){
+    let tmp = null;
+    if(copy){
+      tmp = document.createElement('canvas');
+      tmp.width = l.c.width; tmp.height = l.c.height;
+      tmp.getContext('2d').drawImage(l.c,0,0);
+    }
+    l.c.width = N*newS; l.c.height = l.h*newS;
+    if(copy){ l.x.imageSmoothingEnabled = false; l.x.drawImage(tmp,0,0,l.c.width,l.c.height); }
+  }
+  S = newS;
+  $('res').value = String(S);
+  remakeTex();
+  setZoom(defZoom(S));
+}
+
+// ---- エディタ描画
+function setZoom(z){
+  cs = Math.max(1,Math.min(24,Math.round(z)));
+  $('zoom').value = cs; $('zv').textContent = cs;
+  const l = L[target];
+  view.width = N*S*cs; view.height = l.h*S*cs;
+  $('info').textContent = `${l.c.width}×${l.c.height}px`;
+  redraw();
+}
+function netPath(w,h,d,u,v,k){
+  const p = new Path2D();
+  const pts = [[u+d,v],[u+d+2*w,v],[u+d+2*w,v+d],[u+2*d+2*w,v+d],[u+2*d+2*w,v+d+h],[u,v+d+h],[u,v+d],[u+d,v+d]];
+  pts.forEach(([x,y],i)=>{ i?p.lineTo(x*k,y*k):p.moveTo(x*k,y*k); });
+  p.closePath();
+  return p;
+}
+const faceNames = ['左','右','上','下','前','後'];
+function netList(){
+  const P = parts($('slim').value==='1');
+  const list = [];
+  if(target==='skin'){
+    Object.values(P).forEach(p=>{
+      list.push({s:p.s,uv:p.base,col:'#4fd8ff'});
+      list.push({s:p.s,uv:p.over,col:'#ffa040'});
+    });
+  } else {
+    const def = defs[target];
+    Object.entries(def).forEach(([name,arr])=>arr.forEach(ld=>{
+      if(!ld.col) return;
+      list.push({s:ld.s||P[name].s,uv:ld.base,col:ld.col});
+    }));
+  }
+  return list;
+}
+function drawNets(){
+  const k = S*cs;
+  const list = netList();
+  const mask = new Path2D();
+  mask.rect(0,0,view.width,view.height);
+  list.forEach(n=>mask.addPath(netPath(...n.s,...n.uv,k)));
+  vctx.fillStyle='rgba(0,0,0,.55)';
+  vctx.fill(mask,'evenodd');
+  if(k>=4){
+    vctx.lineWidth = 1;
+    vctx.strokeStyle='rgba(255,255,255,.25)';
+    vctx.beginPath();
+    list.forEach(n=>faceRects(...n.s,...n.uv).forEach(([x,y,w,h])=>vctx.rect(x*k+.5,y*k+.5,w*k,h*k)));
+    vctx.stroke();
+  }
+  vctx.lineWidth = 2;
+  list.forEach(n=>{ vctx.strokeStyle=n.col; vctx.stroke(netPath(...n.s,...n.uv,k)); });
+  if(k>=10){
+    vctx.font = `${Math.min(k,16)}px sans-serif`;
+    vctx.textAlign='center'; vctx.textBaseline='middle';
+    list.forEach(n=>{
+      vctx.fillStyle=n.col;
+      faceRects(...n.s,...n.uv).forEach(([x,y,w,h],i)=>{
+        if(w>=2 && h>=2) vctx.fillText(faceNames[i],(x+w/2)*k,(y+h/2)*k);
+      });
+    });
+  }
+}
+function redraw(){
+  const l = L[target], k = S*cs;
+  vctx.imageSmoothingEnabled = false;
+  for(let by=0;by<l.h;by++)for(let bx=0;bx<N;bx++){
+    vctx.fillStyle = ((bx+by)&1) ? '#bbb' : '#999';
+    vctx.fillRect(bx*k,by*k,k,k);
+  }
+  if(target!=='skin'){
+    vctx.globalAlpha = .4;
+    vctx.drawImage(L.skin.c,0,0,N*S,l.h*S,0,0,view.width,view.height);
+    vctx.globalAlpha = 1;
+  }
+  vctx.drawImage(l.c,0,0,view.width,view.height);
+  if($('grid').checked){
+    if(cs>=6){
+      vctx.strokeStyle='rgba(0,0,0,.2)'; vctx.lineWidth=1; vctx.beginPath();
+      for(let i=0;i<=N*S;i++){ const p=i*cs+.5; vctx.moveTo(p,0);vctx.lineTo(p,view.height); }
+      for(let i=0;i<=l.h*S;i++){ const p=i*cs+.5; vctx.moveTo(0,p);vctx.lineTo(view.width,p); }
+      vctx.stroke();
+    }
+    if(S>1 && k>=6){
+      vctx.strokeStyle='rgba(0,0,0,.5)'; vctx.beginPath();
+      for(let i=0;i<=N;i++){ const p=i*k+.5; vctx.moveTo(p,0);vctx.lineTo(p,view.height); }
+      for(let i=0;i<=l.h;i++){ const p=i*k+.5; vctx.moveTo(0,p);vctx.lineTo(view.width,p); }
+      vctx.stroke();
+    }
+  }
+  if($('net').checked) drawNets();
+  KEYS.forEach(key=>tex[key].needsUpdate = true);
+}
+$('zoom').oninput = e => setZoom(+e.target.value);
+view.addEventListener('wheel', e=>{
+  if(!(e.ctrlKey||e.metaKey)) return;
+  e.preventDefault();
+  setZoom(cs + (e.deltaY<0?1:-1));
+},{passive:false});
+
+// ---- 履歴
+const undoStack = [], redoStack = [];
+const getData = l => l.x.getImageData(0,0,l.c.width,l.c.height);
+function snap(kind){
+  const e = { kind, S };
+  if(kind==='all'){ e.data = {}; KEYS.forEach(k=>e.data[k]=getData(L[k])); }
+  else e.data = getData(L[kind]);
+  return e;
+}
+function restore(e){
+  if(e.S !== S) applyScale(e.S,false);
+  if(e.kind==='all') KEYS.forEach(k=>L[k].x.putImageData(e.data[k],0,0));
+  else L[e.kind].x.putImageData(e.data,0,0);
+  // (c) restore の末尾 redraw(); の直前に追加 (元に戻す/やり直しは全層を未保存扱い)
+  KEYS.forEach(k=>dirty[k]=true);
+  redraw();
+}
+// (b) pushUndo を差し替え (編集操作で対象層を未保存にする)
+function pushUndo(kind){
+  kind = kind || target;
+  undoStack.push(snap(kind));
+  if(undoStack.length>30) undoStack.shift();
+  redoStack.length = 0;
+  if(kind!=='all') dirty[kind] = true;
+}
+function undo(){
+  const e = undoStack.pop(); if(!e) return;
+  redoStack.push(snap(e.kind)); restore(e);
+}
+function redo(){
+  const e = redoStack.pop(); if(!e) return;
+  undoStack.push(snap(e.kind)); restore(e);
+}
+$('undo').onclick = undo;
+$('redo').onclick = redo;
+addEventListener('keydown', e=>{
+  if(!(e.ctrlKey||e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if(k==='z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if(k==='y'){ e.preventDefault(); redo(); }
+});
+
+// ---- ツール
+let tool = 'pen', drawing = false, last = null;
+document.querySelectorAll('.tool').forEach(b=>{
+  b.onclick = () => {
+    tool = b.dataset.t;
+    document.querySelectorAll('.tool').forEach(x=>x.classList.toggle('active',x===b));
+  };
+});
+function pos(e){
+  const r = view.getBoundingClientRect(), l = L[target];
+  return [Math.floor((e.clientX-r.left)/r.width*l.c.width), Math.floor((e.clientY-r.top)/r.height*l.c.height)];
+}
+function plot(x,y){
+  const l = L[target];
+  if(x<0||y<0||x>=l.c.width||y>=l.c.height) return;
+  l.x.clearRect(x,y,1,1);
+  if(tool!=='eraser'){ l.x.fillStyle=$('color').value; l.x.fillRect(x,y,1,1); }
+}
+function line(x0,y0,x1,y1){
+  const dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1;
+  let err=dx+dy;
+  while(true){
+    plot(x0,y0);
+    if(x0===x1&&y0===y1)break;
+    const e2=2*err;
+    if(e2>=dy){err+=dy;x0+=sx;}
+    if(e2<=dx){err+=dx;y0+=sy;}
+  }
+}
+function flood(x,y){
+  const l = L[target], W = l.c.width, H = l.c.height;
+  if(x<0||y<0||x>=W||y>=H) return;
+  const img = l.x.getImageData(0,0,W,H), d = new Uint32Array(img.data.buffer);
+  const hex = $('color').value;
+  const c = ((255<<24)|(parseInt(hex.slice(5,7),16)<<16)|(parseInt(hex.slice(3,5),16)<<8)|parseInt(hex.slice(1,3),16))>>>0;
+  const t = d[y*W+x];
+  if(t===c) return;
+  const st=[y*W+x];
+  while(st.length){
+    const i = st.pop();
+    if(d[i]!==t) continue;
+    d[i]=c;
+    const px=i%W;
+    if(px>0) st.push(i-1);
+    if(px<W-1) st.push(i+1);
+    if(i>=W) st.push(i-W);
+    if(i<W*(H-1)) st.push(i+W);
+  }
+  l.x.putImageData(img,0,0);
+}
+function pick(x,y){
+  const l = L[target];
+  if(x<0||y<0||x>=l.c.width||y>=l.c.height) return;
+  const p = l.x.getImageData(x,y,1,1).data;
+  if(p[3]===0) return;
+  $('color').value = '#'+[p[0],p[1],p[2]].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+view.addEventListener('pointerdown', e=>{
+  view.setPointerCapture(e.pointerId);
+  const [x,y] = pos(e);
+  if(tool==='pick'){ pick(x,y); return; }
+  pushUndo();
+  if(tool==='fill'){ flood(x,y); redraw(); return; }
+  drawing = true; last = [x,y];
+  plot(x,y); redraw();
+});
+view.addEventListener('pointermove', e=>{
+  if(!drawing) return;
+  const [x,y] = pos(e);
+  line(last[0],last[1],x,y);
+  last=[x,y]; redraw();
+});
+addEventListener('pointerup', ()=>{ drawing=false; });
+
+$('clear').onclick = () => {
+  pushUndo();
+  const l = L[target];
+  l.x.clearRect(0,0,l.c.width,l.c.height);
+  redraw();
+};
+$('grid').onchange = redraw;
+$('net').onchange = redraw;
+$('over').onchange = () => vis.over.forEach(o=>o.visible=$('over').checked);
+$('leggVis').onchange = () => vis.legg.forEach(o=>o.visible=$('leggVis').checked);
+$('armorVis').onchange = () => vis.armor.forEach(o=>o.visible=$('armorVis').checked);
+$('slim').onchange = () => { buildModel($('slim').value==='1'); redraw(); };
+function showLayer(k){
+  const box = $(k+'Vis');
+  box.checked = true;
+  vis[k].forEach(o=>o.visible=true);
+}
+document.querySelectorAll('input[name=target]').forEach(r=>{
+  r.onchange = () => {
+    target = r.value;
+    if(target==='legg' || target==='armor') showLayer(target);
+    setZoom(cs);
+  };
+});
+$('res').onchange = e => {
+  const ns = +e.target.value;
+  if(ns===S) return;
+  if(ns<S && !confirm('解像度を下げると細部が失われます。続けますか？')){ e.target.value=String(S); return; }
+  pushUndo('all');
+  const prevS = S;
+  applyScale(ns,true);
+    // (d) 解像度変更: $('res').onchange 内の applyScale(ns,true); の直後に追加
+  KEYS.forEach(k=>dirty[k]=true);
+
+  // 読み込み: $('file').onchange 内の `if(kind!=='skin') showLayer(kind);` の直前に追加
+  //  (ファイルと一致するので読み込んだ層は保存済み。解像度が変わった場合は他の層だけ未保存扱い)
+  KEYS.forEach(key=>{ dirty[key] = (key!==kind && k!==prevS); });
+};
+
+// ---- 読み込み / 書き出し
+let loadKind = 'skin';
+const names = { skin:'スキン', legg:'レギンス', armor:'防具' };
+['skin','legg','armor'].forEach(k=>{
+  const K = k[0].toUpperCase()+k.slice(1);
+  $('open'+K).onclick = () => { loadKind=k; $('file').click(); };
+  $('save'+K).onclick = () => save(k, k+'.png');
+});
+$('file').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const kind = loadKind;
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(img.src);
+    const W = img.width, H = img.height, k = W/N;
+    const okW = Number.isInteger(k) && k>=1 && k<=MAXS;
+    const okH = kind==='skin' ? (H===64*k || H===32*k) : (H===32*k);
+    if(!okW || !okH){
+      alert(`${names[kind]}は ${kind==='skin'?'64×64 / 64×32':'64×32'} とその整数倍(最大×${MAXS})に対応しています。(読み込んだ画像: ${W}×${H})`);
+      return;
+    }
+    pushUndo('all');
+    if(k!==S) applyScale(k,true);
+    const l = L[kind];
+    l.x.clearRect(0,0,l.c.width,l.c.height);
+    l.x.drawImage(img,0,0);
+    if(kind==='skin' && H===32*k) upgradeLegacy(k);
+    if(kind!=='skin') showLayer(kind);
+    redraw();
+  };
+  img.src = URL.createObjectURL(f);
+  e.target.value = '';
+};
+function flipCopy(x,sx,sy,w,h,dx,dy){
+  const src = x.getImageData(sx,sy,w,h), dst = x.createImageData(w,h);
+  for(let y=0;y<h;y++)for(let i=0;i<w;i++){
+    const a=(y*w+i)*4, b=(y*w+(w-1-i))*4;
+    for(let c=0;c<4;c++) dst.data[b+c]=src.data[a+c];
+  }
+  x.putImageData(dst,dx,dy);
+}
+function upgradeLegacy(k){
+  const x = L.skin.x;
+  const fc = (a,b,w,h,c,d)=>flipCopy(x,a*k,b*k,w*k,h*k,c*k,d*k);
+  const mirrorLimb = (sx,sy,dx,dy)=>{
+    fc(sx+4,sy,4,4,dx+4,dy);
+    fc(sx+8,sy,4,4,dx+8,dy);
+    fc(sx+8,sy+4,4,12,dx,dy+4);
+    fc(sx,sy+4,4,12,dx+8,dy+4);
+    fc(sx+4,sy+4,4,12,dx+4,dy+4);
+    fc(sx+12,sy+4,4,12,dx+12,dy+4);
+  };
+  mirrorLimb(0,16,16,48);
+  mirrorLimb(40,16,32,48);
+}
+function save(kind, name){
+  dirty[kind] = false;
+  L[kind].c.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  },'image/png');
+}
+
+// ---- 初期スキン (S=1で描画)
+function paintPart(p,color){
+  const x = L.skin.x;
+  x.fillStyle=color;
+  const [w,h,d]=p.s;
+  faceRects(w,h,d,...p.base).forEach(([a,b,fw,fh])=>x.fillRect(a,b,fw,fh));
+}
+function initSkin(){
+  const P = parts(false), x = L.skin.x;
+  paintPart(P.head,'#c68642'); paintPart(P.body,'#00a8a8');
+  paintPart(P.rarm,'#c68642'); paintPart(P.larm,'#c68642');
+  paintPart(P.rleg,'#3b3b9c'); paintPart(P.lleg,'#3b3b9c');
+  x.fillStyle='#4a2c10'; x.fillRect(8,0,16,8); x.fillRect(0,8,32,2);
+  x.fillStyle='#fff';   x.fillRect(9,12,2,1); x.fillRect(13,12,2,1);
+  x.fillStyle='#4b2a9a';x.fillRect(10,12,1,1); x.fillRect(13,12,1,1);
+}
+initSkin();
+applyScale(1,false);
+buildModel(false);
+resize();
+</script>
+</body>
+</html>
