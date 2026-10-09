@@ -49,10 +49,29 @@
   <button class="tool" data-t="eraser">消しゴム</button>
   <button class="tool" data-t="fill">塗りつぶし</button>
   <button class="tool" data-t="pick">スポイト</button>
+  <button class="tool" data-t="select">範囲選択</button>
   <input type="color" id="color" value="#c0392b">
   <button id="undo">元に戻す</button>
   <button id="redo">やり直し</button>
   <button id="clear">全消去</button>
+</div>
+<div id="bar" style="padding-top:0">
+  <span>選択範囲:</span>
+  <button id="selAll">全選択</button>
+  <button id="selDelBtn">削除</button>
+  <button id="selFillBtn">塗りつぶし</button>
+  <button id="selCopyBtn">コピー</button>
+  <button id="selCutBtn">切り取り</button>
+  <button id="selPasteBtn">貼り付け</button>
+  <button id="selOk">確定</button>
+  <button id="selNone">選択解除</button>
+  <span class="sep">|</span>
+  <button id="rot90">↻90°</button>
+  <button id="rot180">180°</button>
+  <button id="rot270">↺90°(270°)</button>
+  <button id="flipH">左右反転</button>
+  <button id="flipV">上下反転</button>
+  <label><input type="checkbox" id="selDup">複製モード(移動・回転で元を残す)</label>
 </div>
 <div id="bar" style="padding-top:0">
   <label>拡大<input type="range" id="zoom" min="1" max="24" value="10"><span id="zv">10</span>px/ドット</label>
@@ -82,8 +101,8 @@ const $ = id => document.getElementById(id);
 const N = 64, MAXS = 16;
 let S = 1, cs = 10, target = 'skin';
 
-// 層ごとの膨らみ量(各軸の合計。大きいほど外側)
-const GROW = { over:0.5, legg:1, armor:2, armor2:2.5 };
+// 層ごとの膨らみ量(各軸の合計。大きいほど外側。片側はこの半分)
+const GROW = { over:0.5, legg:1.0, armor:2.0, armor2:2.5 };
 
 const mkLayer = h => {
   const c = document.createElement('canvas');
@@ -92,13 +111,35 @@ const mkLayer = h => {
 };
 const L = { skin: mkLayer(64), legg: mkLayer(32), armor: mkLayer(32) };
 const KEYS = Object.keys(L);
-// (a) スクリプトの `const KEYS = ...` の直後に追加
+const view = $('view');
+const vctx = view.getContext('2d');
+
+// ---- 未保存管理
 const dirty = { skin:false, legg:false, armor:false };
 addEventListener('beforeunload', e => {
   if(Object.values(dirty).some(Boolean)){ e.preventDefault(); e.returnValue = ''; }
 });
-const view = $('view');
-const vctx = view.getContext('2d');
+
+// ---- 範囲選択の状態
+let sel = null, flt = null, base = null, selecting = false, moving = null, selStart = null, clip = null;
+function commitFloat(){ flt = null; base = null; }
+function renderFloat(){
+  if(!flt) return;
+  const l = L[target];
+  l.x.putImageData(base,0,0);
+  l.x.imageSmoothingEnabled = false;
+  l.x.drawImage(flt, sel.x, sel.y);
+}
+function ensureFloat(copy){
+  if(flt || !sel) return;
+  pushUndo();
+  const l = L[target];
+  const c = document.createElement('canvas');
+  c.width = sel.w; c.height = sel.h;
+  c.getContext('2d').drawImage(l.c, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+  if(!copy) l.x.clearRect(sel.x, sel.y, sel.w, sel.h);
+  base = getData(l); flt = c;
+}
 
 // ---- パーツ定義
 function parts(slim) {
@@ -157,7 +198,7 @@ const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setPixelRatio(devicePixelRatio);
 wrap.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40,1,0.1,1000);
+const camera = new THREE.PerspectiveCamera(40,1,0.5,1000);
 camera.position.set(30,35,60);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0,16,0);
@@ -194,7 +235,6 @@ function buildModel(slim){
     const g = new THREE.Group();
     g.position.set(...pv);
     const off = p.pos.map((v,i)=>v-pv[i]);
-    // 変更後 (dx: X方向の追加オフセット)
     const add = (mesh, key, dx=0) => {
       mesh.position.set(off[0]+dx, off[1], off[2]);
       if(key){ mesh.visible = $(key==='over'?'over':key+'Vis').checked; vis[key].push(mesh); }
@@ -202,7 +242,6 @@ function buildModel(slim){
     };
     add(new THREE.Mesh(makeBox(w,h,d,...p.base,0,64,false), mats.skin));
     add(new THREE.Mesh(makeBox(w,h,d,...p.over,GROW.over,64,false), mats.skin), 'over');
-    // 変更後
     for(const layer of ['legg','armor']){
       (defs[layer][name]||[]).forEach(ld=>{
         const s = ld.s || p.s;
@@ -263,6 +302,7 @@ function applyScale(newS, copy){
     l.c.width = N*newS; l.c.height = l.h*newS;
     if(copy){ l.x.imageSmoothingEnabled = false; l.x.drawImage(tmp,0,0,l.c.width,l.c.height); }
   }
+  sel = null; flt = null; base = null;
   S = newS;
   $('res').value = String(S);
   remakeTex();
@@ -331,6 +371,16 @@ function drawNets(){
     });
   }
 }
+function drawSelection(){
+  if(!sel) return;
+  const x = sel.x*cs+.5, y = sel.y*cs+.5, w = sel.w*cs-1, h = sel.h*cs-1;
+  vctx.save();
+  vctx.lineWidth = 1; vctx.setLineDash([4,4]);
+  vctx.strokeStyle = '#fff'; vctx.strokeRect(x,y,w,h);
+  vctx.lineDashOffset = 4;
+  vctx.strokeStyle = '#000'; vctx.strokeRect(x,y,w,h);
+  vctx.restore();
+}
 function redraw(){
   const l = L[target], k = S*cs;
   vctx.imageSmoothingEnabled = false;
@@ -359,6 +409,7 @@ function redraw(){
     }
   }
   if($('net').checked) drawNets();
+  drawSelection();
   KEYS.forEach(key=>tex[key].needsUpdate = true);
 }
 $('zoom').oninput = e => setZoom(+e.target.value);
@@ -381,12 +432,12 @@ function restore(e){
   if(e.S !== S) applyScale(e.S,false);
   if(e.kind==='all') KEYS.forEach(k=>L[k].x.putImageData(e.data[k],0,0));
   else L[e.kind].x.putImageData(e.data,0,0);
-  // (c) restore の末尾 redraw(); の直前に追加 (元に戻す/やり直しは全層を未保存扱い)
   KEYS.forEach(k=>dirty[k]=true);
+  flt = null; base = null; sel = null;
   redraw();
 }
-// (b) pushUndo を差し替え (編集操作で対象層を未保存にする)
 function pushUndo(kind){
+  commitFloat();
   kind = kind || target;
   undoStack.push(snap(kind));
   if(undoStack.length>30) undoStack.shift();
@@ -412,12 +463,14 @@ addEventListener('keydown', e=>{
 
 // ---- ツール
 let tool = 'pen', drawing = false, last = null;
-document.querySelectorAll('.tool').forEach(b=>{
-  b.onclick = () => {
-    tool = b.dataset.t;
-    document.querySelectorAll('.tool').forEach(x=>x.classList.toggle('active',x===b));
-  };
-});
+function setTool(t){
+  if(t!=='select'){ commitFloat(); sel = null; }
+  tool = t;
+  document.querySelectorAll('.tool').forEach(x=>x.classList.toggle('active',x.dataset.t===t));
+  redraw();
+}
+document.querySelectorAll('.tool').forEach(b=>{ b.onclick = () => setTool(b.dataset.t); });
+
 function pos(e){
   const r = view.getBoundingClientRect(), l = L[target];
   return [Math.floor((e.clientX-r.left)/r.width*l.c.width), Math.floor((e.clientY-r.top)/r.height*l.c.height)];
@@ -471,18 +524,20 @@ view.addEventListener('pointerdown', e=>{
   view.setPointerCapture(e.pointerId);
   const [x,y] = pos(e);
   if(tool==='pick'){ pick(x,y); return; }
+  if(tool==='select'){ selDown(e,x,y); return; }
   pushUndo();
   if(tool==='fill'){ flood(x,y); redraw(); return; }
   drawing = true; last = [x,y];
   plot(x,y); redraw();
 });
 view.addEventListener('pointermove', e=>{
-  if(!drawing) return;
   const [x,y] = pos(e);
+  if(tool==='select'){ selMove(x,y); return; }
+  if(!drawing) return;
   line(last[0],last[1],x,y);
   last=[x,y]; redraw();
 });
-addEventListener('pointerup', ()=>{ drawing=false; });
+addEventListener('pointerup', ()=>{ drawing=false; selecting=false; moving=null; });
 
 $('clear').onclick = () => {
   pushUndo();
@@ -490,6 +545,131 @@ $('clear').onclick = () => {
   l.x.clearRect(0,0,l.c.width,l.c.height);
   redraw();
 };
+
+// ---- 範囲選択
+const inSel = (x,y) => sel && x>=sel.x && x<sel.x+sel.w && y>=sel.y && y<sel.y+sel.h;
+function selDown(e,x,y){
+  if(inSel(x,y)){
+    moving = { sx:x, sy:y, ox:sel.x, oy:sel.y, copy: e.altKey || $('selDup').checked };
+    return;
+  }
+  commitFloat();
+  const l = L[target];
+  const cx = Math.max(0,Math.min(l.c.width-1,x)), cy = Math.max(0,Math.min(l.c.height-1,y));
+  selStart = [cx,cy]; sel = { x:cx, y:cy, w:1, h:1 }; selecting = true;
+  redraw();
+}
+function selMove(x,y){
+  if(moving){
+    const dx = x-moving.sx, dy = y-moving.sy;
+    if((dx||dy) && !flt) ensureFloat(moving.copy);
+    if(flt){ sel.x = moving.ox+dx; sel.y = moving.oy+dy; renderFloat(); redraw(); }
+  } else if(selecting){
+    const l = L[target];
+    const cx = Math.max(0,Math.min(l.c.width-1,x)), cy = Math.max(0,Math.min(l.c.height-1,y));
+    sel = { x:Math.min(selStart[0],cx), y:Math.min(selStart[1],cy),
+            w:Math.abs(cx-selStart[0])+1, h:Math.abs(cy-selStart[1])+1 };
+    redraw();
+  }
+}
+function regionCanvas(){
+  const c = document.createElement('canvas');
+  c.width = sel.w; c.height = sel.h;
+  const cx = c.getContext('2d');
+  if(flt) cx.drawImage(flt,0,0);
+  else cx.drawImage(L[target].c, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+  return c;
+}
+function selCopyFn(){ if(sel) clip = { c: regionCanvas(), S }; }
+function selDelete(){
+  if(!sel) return;
+  pushUndo();
+  L[target].x.clearRect(sel.x,sel.y,sel.w,sel.h);
+  redraw();
+}
+function selFill(){
+  if(!sel) return;
+  pushUndo();
+  const x = L[target].x;
+  x.fillStyle = $('color').value;
+  x.fillRect(sel.x,sel.y,sel.w,sel.h);
+  redraw();
+}
+function selPaste(){
+  if(!clip) return;
+  pushUndo();
+  const f = S/clip.S;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1,Math.round(clip.c.width*f));
+  c.height = Math.max(1,Math.round(clip.c.height*f));
+  const cx = c.getContext('2d');
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(clip.c,0,0,c.width,c.height);
+  const px = sel ? sel.x : 0, py = sel ? sel.y : 0;
+  sel = { x:px, y:py, w:c.width, h:c.height };
+  base = getData(L[target]); flt = c;
+  setTool('select');
+  renderFloat(); redraw();
+}
+function transformSel(op){
+  if(!sel) return;
+  ensureFloat($('selDup').checked);
+  const w = flt.width, h = flt.height;
+  const rot = op==='r90' || op==='r270';
+  const nw = rot ? h : w, nh = rot ? w : h;
+  const src = flt.getContext('2d').getImageData(0,0,w,h);
+  const c = document.createElement('canvas'); c.width = nw; c.height = nh;
+  const cx = c.getContext('2d'), dst = cx.createImageData(nw,nh);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    let nx, ny;
+    switch(op){
+      case 'r90':  nx = h-1-y; ny = x; break;
+      case 'r180': nx = w-1-x; ny = h-1-y; break;
+      case 'r270': nx = y;     ny = w-1-x; break;
+      case 'fh':   nx = w-1-x; ny = y; break;
+      default:     nx = x;     ny = h-1-y;
+    }
+    const a = (y*w+x)*4, b = (ny*nw+nx)*4;
+    for(let k=0;k<4;k++) dst.data[b+k] = src.data[a+k];
+  }
+  cx.putImageData(dst,0,0);
+  sel = { x: Math.floor(sel.x+(w-nw)/2), y: Math.floor(sel.y+(h-nh)/2), w:nw, h:nh };
+  flt = c;
+  renderFloat(); redraw();
+}
+$('selAll').onclick = () => {
+  commitFloat();
+  const l = L[target];
+  sel = { x:0, y:0, w:l.c.width, h:l.c.height };
+  setTool('select');
+};
+$('selDelBtn').onclick = selDelete;
+$('selFillBtn').onclick = selFill;
+$('selCopyBtn').onclick = selCopyFn;
+$('selCutBtn').onclick = () => { selCopyFn(); selDelete(); };
+$('selPasteBtn').onclick = selPaste;
+$('selOk').onclick = () => { commitFloat(); redraw(); };
+$('selNone').onclick = () => { commitFloat(); sel = null; redraw(); };
+$('rot90').onclick  = () => transformSel('r90');
+$('rot180').onclick = () => transformSel('r180');
+$('rot270').onclick = () => transformSel('r270');
+$('flipH').onclick  = () => transformSel('fh');
+$('flipV').onclick  = () => transformSel('fv');
+addEventListener('keydown', e=>{
+  if(e.ctrlKey || e.metaKey){
+    const k = e.key.toLowerCase();
+    if(k==='c'){ e.preventDefault(); selCopyFn(); }
+    else if(k==='x'){ e.preventDefault(); selCopyFn(); selDelete(); }
+    else if(k==='v'){ e.preventDefault(); selPaste(); }
+    else if(k==='a'){ e.preventDefault(); $('selAll').click(); }
+    return;
+  }
+  if(e.key==='Delete' || e.key==='Backspace'){ if(sel){ e.preventDefault(); selDelete(); } }
+  else if(e.key==='Enter'){ commitFloat(); redraw(); }
+  else if(e.key==='Escape'){ commitFloat(); sel = null; redraw(); }
+});
+
+// ---- 表示切り替えなど
 $('grid').onchange = redraw;
 $('net').onchange = redraw;
 $('over').onchange = () => vis.over.forEach(o=>o.visible=$('over').checked);
@@ -503,6 +683,7 @@ function showLayer(k){
 }
 document.querySelectorAll('input[name=target]').forEach(r=>{
   r.onchange = () => {
+    commitFloat(); sel = null;
     target = r.value;
     if(target==='legg' || target==='armor') showLayer(target);
     setZoom(cs);
@@ -513,14 +694,8 @@ $('res').onchange = e => {
   if(ns===S) return;
   if(ns<S && !confirm('解像度を下げると細部が失われます。続けますか？')){ e.target.value=String(S); return; }
   pushUndo('all');
-  const prevS = S;
   applyScale(ns,true);
-    // (d) 解像度変更: $('res').onchange 内の applyScale(ns,true); の直後に追加
   KEYS.forEach(k=>dirty[k]=true);
-
-  // 読み込み: $('file').onchange 内の `if(kind!=='skin') showLayer(kind);` の直前に追加
-  //  (ファイルと一致するので読み込んだ層は保存済み。解像度が変わった場合は他の層だけ未保存扱い)
-  KEYS.forEach(key=>{ dirty[key] = (key!==kind && k!==prevS); });
 };
 
 // ---- 読み込み / 書き出し
@@ -545,11 +720,15 @@ $('file').onchange = e => {
       return;
     }
     pushUndo('all');
-    if(k!==S) applyScale(k,true);
+    const prevS = S;
+    if(k>S) applyScale(k,true);       // 大きい画像のときだけ全層を拡大
+    const f2 = S/k;                    // 小さい画像は f2 倍に拡大して読み込む
     const l = L[kind];
     l.x.clearRect(0,0,l.c.width,l.c.height);
-    l.x.drawImage(img,0,0);
-    if(kind==='skin' && H===32*k) upgradeLegacy(k);
+    l.x.imageSmoothingEnabled = false;
+    l.x.drawImage(img,0,0,W*f2,H*f2);
+    if(kind==='skin' && H===32*k) upgradeLegacy(S);
+    KEYS.forEach(key=>{ dirty[key] = (key!==kind && S!==prevS); });
     if(kind!=='skin') showLayer(kind);
     redraw();
   };
